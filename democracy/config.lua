@@ -2,6 +2,8 @@ Config = {}
 
 Config.Lang = 'en-EN'
 
+Config.DevDebug = true
+
 Config.Webhooks={
     URL ='https://discord.com/api/webhooks/1378336296321290260/WB2JX8ZL7NMFCiGcryH7rkokfMvV8sOA2Lg0jsQGkN65SYgbVEG70thYzG9VSVJHx8zh',
     Color = '16711680',
