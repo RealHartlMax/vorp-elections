@@ -23,14 +23,14 @@ Config.ElectionOfficials={
 --Position name and the term in weeks
 --jurisdiction can be Federal, Regional or Local, termlimit not yet functional
 Config.Positions ={
-    {name = 'President', jurisdiction='Federal', term = 8, termlimit=2}, 
-    {name = 'Chief Marshall', jurisdiction='Federal', term = 8, termlimit=2},
-    {name = 'Chief Justice', jurisdiction='Federal', term = 8, termlimit=2},
-    {name = 'Congress East',jurisdiction='Federal', term = 8, termlimit=2},
-    {name = 'Congress West', jurisdiction='Federal', term = 8, termlimit=2},
-    {name = 'Governor', jurisdiction='Regional', term = 8, termlimit=2},
-    {name = 'Head Doctor', jurisdiction='Regional', term = 8, termlimit=2},
-    {name = 'Mayor', jurisdiction='Local', term = 8, termlimit=2},
+    {name = 'President', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}}, 
+    {name = 'Chief Marshall', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
+    {name = 'Chief Justice', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
+    {name = 'Congress East',jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
+    {name = 'Congress West', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
+    {name = 'Governor', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+    {name = 'Head Doctor', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+    {name = 'Mayor', jurisdiction='Local', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
 }
 
 Config.VoteRadius = 2.0
@@ -115,6 +115,26 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
       hash = -272216216,
       scale = 0.5,
       coords = {x = 2930.1513671875, y = 1279.6221923828125, z = 44.75285339355469},
+    },
+    {
+        name = 'Escalera Voting Booth',
+        city = 'Escalera',
+        region = 'Nuevo Paraiso',
+        state = 'Mexico',
+        blip = true,
+        hash = -272216216,
+        scale = 1.0,
+        coords = { x = -262.8, y = -3236.7, z = 131.7 },
+    },
+    {
+        name = 'Chuparosa Voting Booth',
+        city = 'Chuparosa',
+        region = 'Nuevo Paraiso',
+        state = 'Mexico',
+        blip = true,
+        hash = -272216216,
+        scale = 1.0,
+        coords = { x = 442.8, y = -3172.4, z = 153.2 },
     }
 
 }

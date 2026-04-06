@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS `ballot` (
   `position` varchar(255) NOT NULL,
   `region` varchar(255) NOT NULL,
   `city` varchar(255) NOT NULL,
+  `state` varchar(50) DEFAULT 'USA',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=125 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS `ballot_registration` (
   `voterID` int(11) NOT NULL,
   `registrationCity` varchar(50) NOT NULL,
   `registrationRegion` varchar(50) NOT NULL,
+  `state` varchar(50) DEFAULT 'USA',
   PRIMARY KEY (`registrationID`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -53,6 +55,7 @@ CREATE TABLE IF NOT EXISTS `ballot_votes` (
   `office` varchar(50) DEFAULT NULL,
   `jurisdiction` varchar(50) DEFAULT NULL,
   `location` varchar(50) DEFAULT NULL,
+  `state` varchar(50) DEFAULT 'USA',
   PRIMARY KEY (`voteID`)
 ) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='contains the votes for candidates (in the ballot table)';
 

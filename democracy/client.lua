@@ -29,20 +29,22 @@ Citizen.CreateThread(function()
                 if IsControlJustReleased(0, 0x760A9C6F) then
                     local city = v.city 
                     local region = v.region
-                    TriggerEvent('democracy:votingbooth',city, region)   
+                    local state = v.state
+                    TriggerEvent('democracy:votingbooth',city, region, state)   
                     Citizen.Wait(1000)
                 end
             end
         end
         
-        Citizen.Wait(0)
+        Citizen.Wait(1000)
     end
 end)
 
 RegisterNetEvent('democracy:votingbooth')
-AddEventHandler('democracy:votingbooth', function(city, region)
+AddEventHandler('democracy:votingbooth', function(city, region, state)
     local vcity = city
     local vregion = region
+    local vstate = state
     local onBallot = false
     --Check if on ballot anywhere
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:checkonballot", function(cb)
@@ -57,7 +59,7 @@ AddEventHandler('democracy:votingbooth', function(city, region)
         
         if result then
             print("Player is registered.")
-            OpenStartMenu(true, vcity, vregion, onBallot)
+            OpenStartMenu(true, vcity, vregion, onBallot, vstate)
         else
             print("Player is not registered.")
             local button = "Register to Vote in " .. vcity
@@ -66,12 +68,12 @@ AddEventHandler('democracy:votingbooth', function(city, region)
             TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
                 print("User input received:", answer)
                 if answer == "y" or answer == "Y" then
-                    TriggerServerEvent('registerVoter', vcity, vregion)
+                    TriggerServerEvent('registerVoter', vcity, vregion, vstate)
                     TriggerEvent("vorp:TipBottom", ("You have registered to vote in " .. vcity), 4000)
-                    OpenStartMenu(true, vcity, vregion,onBallot)
+                    OpenStartMenu(true, vcity, vregion,onBallot, vstate)
                 else
                     TriggerEvent("vorp:TipBottom", ("You don't want to vote?"), 4000)
-                    OpenStartMenu(false,vcity,vregion,onBallot)
+                    OpenStartMenu(false,vcity,vregion,onBallot, vstate)
                 end
             end)
         end
@@ -79,7 +81,7 @@ AddEventHandler('democracy:votingbooth', function(city, region)
 end)
 end)
 
-function OpenStartMenu(registered, city, region, onBallot)
+function OpenStartMenu(registered, city, region, onBallot, state)
     VORPMenu.CloseAll()
     local menuElements = {
         { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" },
@@ -104,19 +106,19 @@ function OpenStartMenu(registered, city, region, onBallot)
         "votingmenu",
         {
             title = city .. " Voting Booth",
-            subtext = "Vote or Run",
+            subtext = "Vote or Run in "..state,
             align = "top-center",
             elements = menuElements,
             itemHeight = "4vh",
         },
         function(data, menu)
             if data.current.value == "vote" then
-                OpenVoteMenu(registered, city, region, onBallot)
+                OpenVoteMenu(registered, city, region, onBallot, state)
             elseif data.current.value == "stoprunning" then 
                 TriggerEvent("democracy:stoprunning")
                 menu.close()
             elseif data.current.value == "run" then
-                OpenRunMenu(registered, city, region, onBallot)
+                OpenRunMenu(registered, city, region, onBallot, state)
             elseif data.current.value == "exit_menu" then
                 print("close")
                 menu.close()
@@ -128,16 +130,21 @@ function OpenStartMenu(registered, city, region, onBallot)
     )
 end
 
-function OpenRunMenu(registered, city, region, onBallot)
+function OpenRunMenu(registered, city, region, onBallot, state)
     VORPMenu.CloseAll()
     local vcity = city
     local vregion = region
+    local vstate = state
     local menuElements = {}
     
     local addMenuElement
     for k,v in pairs(Config.Positions) do
-        addMenuElement ={ label = v.name, value = v.name, desc = "Run for this"..v.jurisdiction.." office" }
-        table.insert(menuElements, addMenuElement)  
+        for i, s in ipairs(v.states) do
+            if s == vstate then
+                addMenuElement ={ label = v.name, value = v.name, desc = "Run for this"..v.jurisdiction.." office" }
+                table.insert(menuElements, addMenuElement)
+            end
+        end
     end
     addMenuElement= { label = "Main Menu", value = "back", desc = "Back to Main Menu" }
     table.insert(menuElements,addMenuElement)
@@ -159,12 +166,12 @@ function OpenRunMenu(registered, city, region, onBallot)
         },
         function(data, menu)
             if data.current.value == "back" then
-                OpenStartMenu(registered, city, region, onBallot)
+                OpenStartMenu(registered, city, region, onBallot, state)
             elseif data.current.value == "exit_menu" then
                 print("close")
                 menu.close()
             else
-                TriggerServerEvent('addballotname', vcity, vregion, data.current.value)
+                TriggerServerEvent('addballotname', vcity, vregion, data.current.value, vstate)
                 local message = "You are now officially on the ballot for "..data.current.value
                 TriggerEvent("vorp:TipBottom", (message), 4000)
                 local nowonBallot = true
@@ -177,10 +184,11 @@ function OpenRunMenu(registered, city, region, onBallot)
     )
 end
 
-function OpenVoteMenu(registered, city, region, onBallot)
+function OpenVoteMenu(registered, city, region, onBallot, state)
     VORPMenu.CloseAll()
     local vcity = city
     local vregion = region
+    local vstate = state
     local menuElements = {}
     
     local addMenuElement
@@ -208,13 +216,13 @@ function OpenVoteMenu(registered, city, region, onBallot)
         },
         function(data, menu)
             if data.current.value == "back" then
-                OpenStartMenu(registered, city, region, onBallot)
+                OpenStartMenu(registered, city, region, onBallot, state)
             elseif data.current.value == "exit_menu" then
                 print("close")
                 menu.close()
             else               
                 --Open Candidate Menu
-                OpenCandidatesMenu(registered,city,region,data.current.value,onBallot)
+                OpenCandidatesMenu(registered,city,region,data.current.value,onBallot, state)
 
             end
         end,
@@ -224,10 +232,11 @@ function OpenVoteMenu(registered, city, region, onBallot)
     )
 end
 
-function OpenCandidatesMenu(registered, city, region, position, onBallot)
+function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
     VORPMenu.CloseAll()
     local vcity = city
     local vregion = region
+    local vstate = state
     local position = position
     local menuElements = {}
     local addMenuElement
@@ -276,14 +285,14 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot)
             },
             function(data, menu)
                 if data.current.value == "back" then
-                    OpenVoteMenu(registered, city, region, onBallot)
+                    OpenVoteMenu(registered, city, region, onBallot, state)
                 elseif data.current.value == "exit_menu" then
                     print("close")
                     menu.close()
                 else
                     local selectedBallotID = data.current.ballotid
                     local selectedCandidateID = data.current.value
-                    CastVote(registered,city,region,position,jurisdiction,selectedCandidateID,selectedBallotID,onBallot)
+                    CastVote(registered,city,region,position,jurisdiction,selectedCandidateID,selectedBallotID,onBallot, state)
 
                 end
             end,
@@ -291,12 +300,13 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot)
                 menu.close()
             end
         )
-    end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position })
+    end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position, state = vstate })
 end
 
-function CastVote(registered,city, region, position,jurisdiction,candidateid,ballotid,onballot)
+function CastVote(registered,city, region, position,jurisdiction,candidateid,ballotid,onballot, state)
     local vcity = city
     local vregion = region
+    local vstate = state
     local position = position
     local jurisdiction = jurisdiction
     local candidateid = candidateid
@@ -313,9 +323,9 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
                 print("User input received:", answer)
                 if answer == "y" or answer == "Y" then
                     TriggerEvent("vorp:TipBottom", ("Your vote has been reset for this position"), 4000) 
-                    TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid)
+                    TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
                     TriggerEvent("vorp:TipBottom", ("You have cast your vote for "..jurisdiction.." "..position.." in "..vcity.." "..vregion), 4000) 
-                    OpenVoteMenu(registered, city, region, onBallot)
+                    OpenVoteMenu(registered, city, region, onBallot, vstate)
                 else
                     TriggerEvent("vorp:TipBottom", ("Ok, your old vote stands, your new vote has been cancelled"), 4000) 
               
@@ -329,13 +339,13 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
                 print("User input received:", answer)
                 if answer == "y" or answer == "Y" then
                    
-                    TriggerServerEvent('addNewVote', vcity, vregion, position, jurisdiction, candidateid, ballotid)
+                    TriggerServerEvent('addNewVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
                     TriggerEvent("vorp:TipBottom", ("You have cast your vote for "..jurisdiction.." "..position.." in "..vcity.." "..vregion), 4000) 
-                    OpenVoteMenu(registered, city, region, onBallot)
+                    OpenVoteMenu(registered, city, region, onBallot, vstate)
                 end
             end)    
         end
-    end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position, candidateid, ballotid })
+    end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position, candidateid = candidateid, ballotid = ballotid, state = vstate })
 end
 
 function DrawTxt(str, x, y, w, h, enableShadow, col1, col2, col3, a, centre)
@@ -466,17 +476,19 @@ function RaceSelectedResults(position)
         local valueToAdd
         local labelToAdd
         local descToAdd
+        local stateToAdd
     
         if jurisdiction == "local" then
             valueToAdd = Config.VotingLocations[k].city
             labelToAdd = Config.VotingLocations[k].city
             descToAdd = Config.VotingLocations[k].city
-        elseif jurisdiction == "regional" then
-            valueToAdd = Config.VotingLocations[k].region
-            labelToAdd = Config.VotingLocations[k].region
-            descToAdd = Config.VotingLocations[k].region
+        elseif jurisdiction == "state" then
+            valueToAdd = Config.VotingLocations[k].state
+            labelToAdd = Config.VotingLocations[k].state
+            descToAdd = Config.VotingLocations[k].state
+            stateToAdd = Config.VotingLocations[k].state
         elseif jurisdiction == "federal" then
-            showResults(position, "federal", "federal")
+            showResults(position, "federal", "federal", nil)
             break
         end
     
@@ -491,7 +503,7 @@ function RaceSelectedResults(position)
     
         -- If the value doesn't exist, insert the new element
         if not exists then
-            addMenuElement = { label = labelToAdd, value = valueToAdd, desc = descToAdd, position = position, jurisdiction = jurisdiction }
+            addMenuElement = { label = labelToAdd, value = valueToAdd, desc = descToAdd, position = position, jurisdiction = jurisdiction, state = stateToAdd }
             table.insert(menuElements, addMenuElement)
         end
     end
@@ -526,7 +538,8 @@ function RaceSelectedResults(position)
                     local position = data.current.position
                     local location = data.current.value
                     local jurisdiction = data.current.jurisdiction
-                    showResults(position, location, jurisdiction)
+                    local state = data.current.state
+                    showResults(position, location, jurisdiction, state)
                 end
             end,
             function(data, menu)
@@ -537,10 +550,11 @@ function RaceSelectedResults(position)
 
     
 
-    function showResults(position, location, jurisdiction)
+    function showResults(position, location, jurisdiction, state)
         VORPMenu.CloseAll()
         local vcity = city
         local vregion = region
+        local vstate = state
         local position = position
         local menuElements = {}
         local addMenuElement
@@ -602,7 +616,7 @@ function RaceSelectedResults(position)
                     menu.close()
                 end
             )
-        end, { location = location, position = position, jurisdiction=jurisdiction })
+        end, { location = location, position = position, jurisdiction=jurisdiction, state=vstate })
     end
 
   
