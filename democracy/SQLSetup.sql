@@ -15,7 +15,6 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 -- Dumping structure for table vorpv2.ballot
-DROP TABLE IF EXISTS `ballot`;
 CREATE TABLE IF NOT EXISTS `ballot` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `character_id` int(11) NOT NULL,
@@ -28,11 +27,7 @@ CREATE TABLE IF NOT EXISTS `ballot` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=125 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Dumping data for table vorpv2.ballot: ~21 rows (approximately)
-DELETE FROM `ballot`;
-
 -- Dumping structure for table vorpv2.ballot_registration
-DROP TABLE IF EXISTS `ballot_registration`;
 CREATE TABLE IF NOT EXISTS `ballot_registration` (
   `registrationID` int(11) NOT NULL AUTO_INCREMENT,
   `voterID` int(11) NOT NULL,
@@ -42,11 +37,7 @@ CREATE TABLE IF NOT EXISTS `ballot_registration` (
   PRIMARY KEY (`registrationID`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Dumping data for table vorpv2.ballot_registration: ~3 rows (approximately)
-DELETE FROM `ballot_registration`;
-
 -- Dumping structure for table vorpv2.ballot_votes
-DROP TABLE IF EXISTS `ballot_votes`;
 CREATE TABLE IF NOT EXISTS `ballot_votes` (
   `voteID` int(11) NOT NULL AUTO_INCREMENT,
   `voterID` int(11) NOT NULL,
@@ -59,8 +50,25 @@ CREATE TABLE IF NOT EXISTS `ballot_votes` (
   PRIMARY KEY (`voteID`)
 ) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='contains the votes for candidates (in the ballot table)';
 
--- Dumping data for table vorpv2.ballot_votes: ~1 rows (approximately)
-DELETE FROM `ballot_votes`;
+CREATE TABLE IF NOT EXISTS `election_cycles` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `state` VARCHAR(50) NOT NULL,
+  `start_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `end_time` TIMESTAMP NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `state_start_time` (`state`, `start_time`)
+);
+
+CREATE TABLE IF NOT EXISTS `election_winners` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `character_id` INT NOT NULL,
+  `candidate_name` VARCHAR(255) NOT NULL,
+  `position` VARCHAR(255) NOT NULL,
+  `state` VARCHAR(50) NOT NULL,
+  `election_date` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `term_end_date` TIMESTAMP NOT NULL,
+  PRIMARY KEY (`id`)
+);
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;

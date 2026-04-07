@@ -1,9 +1,14 @@
---Still to do:  
----Build election cleanup scripts
----Set up election "terms"
---Add prop config for voting booth with optional flag
---cascade delete votes for people who stoprunning
 local VORPcore = {} -- core object
+local Translations = Lang[Config.Lang]
+
+function _L(str, ...)
+    if Translations[str] then
+        return string.format(Translations[str], ...)
+    else
+        print('Translation not found in client: ' .. str)
+        return 'Translation not found: ' .. str
+    end
+end
 
 TriggerEvent("getCore", function(core)
     VORPcore = core
@@ -24,7 +29,7 @@ Citizen.CreateThread(function()
             local distance = GetDistanceBetweenCoords(coords, v.coords.x, v.coords.y, v.coords.z, true)
             
             if distance < 10.0 then
-                DrawTxt('Press G to Vote', 0.50, 0.85, 0.7, 0.7, true, 255, 255, 255, 255, true)
+                DrawTxt(_L('press_to_vote'), 0.50, 0.85, 0.7, 0.7, true, 255, 255, 255, 255, true)
                 
                 if IsControlJustReleased(0, 0x760A9C6F) then
                     local city = v.city 
@@ -62,17 +67,17 @@ AddEventHandler('democracy:votingbooth', function(city, region, state)
             OpenStartMenu(true, vcity, vregion, onBallot, vstate)
         else
             print("Player is not registered.")
-            local button = "Register to Vote in " .. vcity
-            local placeholder = "y or n"
+            local button = _L('register_to_vote_prompt', vcity)
+            local placeholder = _L('placeholder_yes_no')
 
             TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
                 print("User input received:", answer)
-                if answer == "y" or answer == "Y" then
+                if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
                     TriggerServerEvent('registerVoter', vcity, vregion, vstate)
-                    TriggerEvent("vorp:TipBottom", ("You have registered to vote in " .. vcity), 4000)
+                    TriggerEvent("vorp:TipBottom", (_L('player_registered', vcity)), 4000)
                     OpenStartMenu(true, vcity, vregion,onBallot, vstate)
                 else
-                    TriggerEvent("vorp:TipBottom", ("You don't want to vote?"), 4000)
+                    TriggerEvent("vorp:TipBottom", (_L('player_not_want_vote')), 4000)
                     OpenStartMenu(false,vcity,vregion,onBallot, vstate)
                 end
             end)
@@ -84,18 +89,18 @@ end)
 function OpenStartMenu(registered, city, region, onBallot, state)
     VORPMenu.CloseAll()
     local menuElements = {
-        { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" },
+        { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" },
     }
     local addMenuElement
     if registered then
-        addMenuElement = { label = "Vote in " .. city .. " - " .. region, value = "vote", desc = "Vote" }
+        addMenuElement = { label = _L('vote_in_label', city, region), value = "vote", desc = "Vote" }
         table.insert(menuElements, 1, addMenuElement)
     end
     if onBallot then
-        addMenuElement = { label = "Stop Running for Office", value = "stoprunning", desc = "Remove yourself from running for office" }
+        addMenuElement = { label = _L('stop_running_for_office'), value = "stoprunning", desc = "Remove yourself from running for office" }
         table.insert(menuElements, 1, addMenuElement)
     else 
-        addMenuElement = { label = "Run for Office", value = "run", desc = "Run for office" }
+        addMenuElement = { label = _L('run_for_office'), value = "run", desc = "Run for office" }
         table.insert(menuElements, 1, addMenuElement)
     end
 
@@ -105,8 +110,8 @@ function OpenStartMenu(registered, city, region, onBallot, state)
         GetCurrentResourceName(),
         "votingmenu",
         {
-            title = city .. " Voting Booth",
-            subtext = "Vote or Run in "..state,
+            title = _L('vote_menu_title', city),
+            subtext = _L('vote_menu_subtext', state),
             align = "top-center",
             elements = menuElements,
             itemHeight = "4vh",
@@ -141,14 +146,14 @@ function OpenRunMenu(registered, city, region, onBallot, state)
     for k,v in pairs(Config.Positions) do
         for i, s in ipairs(v.states) do
             if s == vstate then
-                addMenuElement ={ label = v.name, value = v.name, desc = "Run for this"..v.jurisdiction.." office" }
+                addMenuElement ={ label = v.name, value = v.name, desc = _L('run_for_office_desc', v.jurisdiction) }
                 table.insert(menuElements, addMenuElement)
             end
         end
     end
-    addMenuElement= { label = "Main Menu", value = "back", desc = "Back to Main Menu" }
+    addMenuElement= { label = _L('menu_main'), value = "back", desc = "Back to Main Menu" }
     table.insert(menuElements,addMenuElement)
-    addMenuElement = { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" }
+    addMenuElement = { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" }
     table.insert(menuElements,addMenuElement)
     
    
@@ -158,8 +163,8 @@ function OpenRunMenu(registered, city, region, onBallot, state)
         GetCurrentResourceName(),
         "runmenu",
         {
-            title = "Run for Office",
-            subtext = " in "..vcity..", "..vregion,
+            title = _L('run_menu_title'),
+            subtext = _L('run_menu_subtext', vcity, vregion),
             align = "top-center",
             elements = menuElements,
             itemHeight = "4vh",
@@ -172,7 +177,7 @@ function OpenRunMenu(registered, city, region, onBallot, state)
                 menu.close()
             else
                 TriggerServerEvent('addballotname', vcity, vregion, data.current.value, vstate)
-                local message = "You are now officially on the ballot for "..data.current.value
+                local message = _L('you_are_on_ballot', data.current.value)
                 TriggerEvent("vorp:TipBottom", (message), 4000)
                 local nowonBallot = true
                 menu.close()
@@ -193,12 +198,12 @@ function OpenVoteMenu(registered, city, region, onBallot, state)
     
     local addMenuElement
     for k,v in pairs(Config.Positions) do
-        addMenuElement ={ label = v.name, value = v.name, desc = "Vote for"..v.name }
+        addMenuElement ={ label = v.name, value = v.name, desc = _L('vote_for_label', v.name) }
         table.insert(menuElements, addMenuElement)  
     end
-    addMenuElement= { label = "Main Menu", value = "back", desc = "Back to Main Menu" }
+    addMenuElement= { label = _L('menu_main'), value = "back", desc = "Back to Main Menu" }
     table.insert(menuElements,addMenuElement)
-    addMenuElement = { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" }
+    addMenuElement = { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" }
     table.insert(menuElements,addMenuElement)
     
    
@@ -208,8 +213,8 @@ function OpenVoteMenu(registered, city, region, onBallot, state)
         GetCurrentResourceName(),
         "votemenu",
         {
-            title = "Vote",
-            subtext = " in "..vcity..", "..vregion,
+            title = _L('vote_menu_title_short'),
+            subtext = _L('vote_menu_subtext_short', vcity, vregion),
             align = "top-center",
             elements = menuElements,
             itemHeight = "4vh",
@@ -254,7 +259,7 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
         local result = cb
         if #cb == 0 then
             print("No candidates found.")
-            TriggerEvent("vorp:TipBottom", "No candidates found for this position.", 4000)
+            TriggerEvent("vorp:TipBottom", _L('no_candidates_found'), 4000)
         end
 
         for k, v in pairs(cb) do
@@ -262,13 +267,13 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
             value = cb[k].cid
             ballotID = cb[k].ballotID
             
-            addMenuElement = { label = label, value = value, ballotid =ballotID, desc = "Vote for this candidate" }
+            addMenuElement = { label = label, value = value, ballotid =ballotID, desc = _L('vote_for_candidate_desc', label) }
             table.insert(menuElements, addMenuElement)
         end
 
-        addMenuElement = { label = "Vote for Other Positions", value = "back", desc = "Back" }
+        addMenuElement = { label = _L('vote_for_other_positions'), value = "back", desc = "Back" }
         table.insert(menuElements, addMenuElement)
-        addMenuElement = { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" }
+        addMenuElement = { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" }
         table.insert(menuElements, addMenuElement)
 
         -- Open the menu using VORPMenu
@@ -277,8 +282,8 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
             GetCurrentResourceName(),
             "reallyvotemenu",
             {
-                title = "Vote for Candidate",
-                subtext = " in " .. vcity .. ", " .. vregion,
+                title = _L('candidates_menu_title'),
+                subtext = _L('candidates_menu_subtext', vcity, vregion),
                 align = "top-center",
                 elements = menuElements,
                 itemHeight = "4vh",
@@ -317,30 +322,28 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:hasvotervotedalready", function(cb)
         local result = cb
         if cb then 
-            local button = "You have already voted in this race.  Do you wish to remove your vote and vote again?"
-            local placeholder = "y or n"
+            local button = _L('already_voted_prompt')
+            local placeholder = _L('placeholder_yes_no')
             TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
                 print("User input received:", answer)
-                if answer == "y" or answer == "Y" then
-                    TriggerEvent("vorp:TipBottom", ("Your vote has been reset for this position"), 4000) 
+                if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
+                    TriggerEvent("vorp:TipBottom", (_L('vote_reset')), 4000) 
                     TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
-                    TriggerEvent("vorp:TipBottom", ("You have cast your vote for "..jurisdiction.." "..position.." in "..vcity.." "..vregion), 4000) 
+                    TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000) 
                     OpenVoteMenu(registered, city, region, onBallot, vstate)
                 else
-                    TriggerEvent("vorp:TipBottom", ("Ok, your old vote stands, your new vote has been cancelled"), 4000) 
-              
+                    TriggerEvent("vorp:TipBottom", (_L('old_vote_kept')), 4000) 
                 end
             end)
         
         else
-            local button = "You are about to place a vote for "..jurisdiction.." "..position.." in "..vcity.." "..vregion.." ".." Press y to confirm."
-            local placeholder = "y or n"
+            local button = _L('new_vote_confirmation', jurisdiction, position, vcity, vregion)
+            local placeholder = _L('placeholder_yes_no')
             TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
                 print("User input received:", answer)
-                if answer == "y" or answer == "Y" then
-                   
+                if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
                     TriggerServerEvent('addNewVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
-                    TriggerEvent("vorp:TipBottom", ("You have cast your vote for "..jurisdiction.." "..position.." in "..vcity.." "..vregion), 4000) 
+                    TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000) 
                     OpenVoteMenu(registered, city, region, onBallot, vstate)
                 end
             end)    
@@ -364,16 +367,16 @@ AddEventHandler('democracy:stoprunning', function()
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:runningstatus", function(cb)
         local result = cb
         print(result)
-        local button = "Are you sure you wish to stop running for" .. result.."?.  This cannot be undone."
-        local placeholder = "y or n"
+        local button = _L('stop_running_confirmation', result)
+        local placeholder = _L('placeholder_yes_no')
 
             TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
                 print("User input received:", answer)
-                if answer == "y" or answer == "Y" then
+                if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
                     TriggerServerEvent("removeFromBallot")
-                    TriggerEvent("vorp:TipBottom", ("You have removed your name from the slate for " .. result), 4000) 
+                    TriggerEvent("vorp:TipBottom", (_L('stopped_running_success', result)), 4000) 
                 else
-                    TriggerEvent("vorp:TipBottom", ("Ok, you will remain in the running for " .. result), 4000) 
+                    TriggerEvent("vorp:TipBottom", (_L('keep_running', result)), 4000) 
                 end
             end)
         
@@ -386,36 +389,11 @@ RegisterCommand("electionresults", function()
             if results then
                 TriggerServerEvent("openelectionresultsmenu")
             else
-                TriggerEvent("vorp:TipBottom", ("Only Election Officials are authorized to use this command. "), 4000) 
+                TriggerEvent("vorp:TipBottom", (_L('no_election_officials')), 4000) 
             end  
     end)
   
 end)
-
-
---[[ RegisterCommand("resetelection", function()
-    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:isAdmin", function(cb)
-        local result = cb
-        print("is it true", result)
-        if result then 
-            local button = "Are you sure you wish to delete all the votes and candidates from the database? This cannot be undone."
-            local placeholder = "y or n"
-            TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
-            print("User input received:", answer)
-            if answer == "y" or answer == "Y" then
-                TriggerServerEvent("cleanupScript")
-                TriggerEvent("vorp:TipBottom", ("Cleanup Processing" .. result), 4000) 
-            else
-            TriggerEvent("vorp:TipBottom", ("Cleanup Canceled" .. result), 4000) 
-             end
-            end)
-        else
-            TriggerEvent("vorp:TipBottom", ("Not authorized" .. result), 4000) 
-        end
-
-        end)
-end) ]]
-
 
 RegisterNetEvent('democracy:openElecResMenu')
 AddEventHandler('democracy:openElecResMenu', function()
@@ -424,11 +402,11 @@ AddEventHandler('democracy:openElecResMenu', function()
     
     local addMenuElement
     for k,v in pairs(Config.Positions) do
-        addMenuElement ={ label = v.name, value = v.name, desc = "Show results" }
+        addMenuElement ={ label = v.name, value = v.name, desc = _L('show_results_desc') }
         table.insert(menuElements, addMenuElement)  
     end
     
-    addMenuElement = { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" }
+    addMenuElement = { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" }
     table.insert(menuElements,addMenuElement)
     
     -- Open the menu using VORPMenu
@@ -437,8 +415,8 @@ AddEventHandler('democracy:openElecResMenu', function()
         GetCurrentResourceName(),
         "runmenu",
         {
-            title = "Election Results",
-            subtext = "Election Officials Only",
+            title = _L('results_menu_title'),
+            subtext = _L('results_menu_subtext'),
             align = "top-center",
             elements = menuElements,
             itemHeight = "4vh",
@@ -455,7 +433,6 @@ AddEventHandler('democracy:openElecResMenu', function()
         end
     )
 end)
-
 
 function RaceSelectedResults(position)
     VORPMenu.CloseAll()
@@ -508,115 +485,108 @@ function RaceSelectedResults(position)
         end
     end
     
-   
- 
+    addMenuElement = { label = _L('results_for_other_positions'), value = "back", desc = "Back" }
+    table.insert(menuElements, addMenuElement)
+    addMenuElement = { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" }
+    table.insert(menuElements, addMenuElement)
 
-        addMenuElement = { label = "Results for Other Positions", value = "back", desc = "Back" }
+    -- Open the menu using VORPMenu
+    VORPMenu.Open(
+        "default",
+        GetCurrentResourceName(),
+        "reallyvotemenu",
+        {
+            title = _L('results_menu_title'),
+            subtext = " for "..vposition,
+            align = "top-center",
+            elements = menuElements,
+            itemHeight = "4vh",
+        },
+        function(data, menu)
+            if data.current.value == "back" then
+                TriggerEvent('democracy:openElecResMenu')
+            elseif data.current.value == "exit_menu" then
+                print("close")
+                menu.close()
+            else
+                local position = data.current.position
+                local location = data.current.value
+                local jurisdiction = data.current.jurisdiction
+                local state = data.current.state
+                showResults(position, location, jurisdiction, state)
+            end
+        end,
+        function(data, menu)
+            menu.close()
+        end
+    )
+end
+
+function showResults(position, location, jurisdiction, state)
+    VORPMenu.CloseAll()
+    local vcity = city
+    local vregion = region
+    local vstate = state
+    local position = position
+    local menuElements = {}
+    local addMenuElement
+    local position  = position
+    local location = location
+    local jurisdiction = jurisdiction      
+    local subtitle
+    print(position..location..jurisdiction)
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResults", function(cb)
+        local result = cb
+        if #cb == 0 then
+            print("No candidates found.")
+            TriggerEvent("vorp:TipBottom", _L('no_candidates_found'), 4000)
+            subtitle = "No candidates"
+        end
+        for k, v in pairs(cb) do
+            
+            label = cb[k].candidate_name.." - "..cb[k].votes.." votes"
+            value = cb[k].candidate_name
+            
+            addMenuElement = { label = label, value = value }
+            table.insert(menuElements, addMenuElement)
+        end
+
+        addMenuElement = { label = _L('menu_back'), value = "back", desc = "Back" }
         table.insert(menuElements, addMenuElement)
-        addMenuElement = { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" }
+        addMenuElement = { label = _L('menu_exit'), value = "exit_menu", desc = "Close Menu" }
         table.insert(menuElements, addMenuElement)
 
         -- Open the menu using VORPMenu
         VORPMenu.Open(
             "default",
             GetCurrentResourceName(),
-            "reallyvotemenu",
+            "reallyresults",
             {
-                title = "Results",
-                subtext = " for "..vposition,
+                title = _L('results_for_label', position),
+                subtext = "Results",
                 align = "top-center",
                 elements = menuElements,
                 itemHeight = "4vh",
             },
             function(data, menu)
                 if data.current.value == "back" then
-                    TriggerEvent('democracy:openElecResMenu')
+                    if jurisdiction ~="federal" then
+                        RaceSelectedResults(position)
+                    else 
+                        TriggerEvent('democracy:openElecResMenu')
+                    end
+      
                 elseif data.current.value == "exit_menu" then
-                    print("close")
+                    
                     menu.close()
                 else
-                    local position = data.current.position
-                    local location = data.current.value
-                    local jurisdiction = data.current.jurisdiction
-                    local state = data.current.state
-                    showResults(position, location, jurisdiction, state)
+                    --donothing. it is the end of the road, finally
+
                 end
             end,
             function(data, menu)
                 menu.close()
             end
         )
-    end
-
-    
-
-    function showResults(position, location, jurisdiction, state)
-        VORPMenu.CloseAll()
-        local vcity = city
-        local vregion = region
-        local vstate = state
-        local position = position
-        local menuElements = {}
-        local addMenuElement
-        local position  = position
-        local location = location
-        local jurisdiction = jurisdiction      
-        local subtitle
-        print(position..location..jurisdiction)
-        TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResults", function(cb)
-            local result = cb
-            if #cb == 0 then
-                print("No candidates found.")
-                TriggerEvent("vorp:TipBottom", "No candidates found for this position.", 4000)
-                subtitle = "No candidates"
-            end
-            for k, v in pairs(cb) do
-                
-                label = cb[k].candidate_name.." - "..cb[k].votes.." votes"
-                value = cb[k].candidate_name
-                
-                addMenuElement = { label = label, value = value }
-                table.insert(menuElements, addMenuElement)
-            end
-    
-            addMenuElement = { label = "Back", value = "back", desc = "Back" }
-            table.insert(menuElements, addMenuElement)
-            addMenuElement = { label = "Exit Menu", value = "exit_menu", desc = "Close Menu" }
-            table.insert(menuElements, addMenuElement)
-    
-            -- Open the menu using VORPMenu
-            VORPMenu.Open(
-                "default",
-                GetCurrentResourceName(),
-                "reallyresults",
-                {
-                    title = "Results for "..position,
-                    subtext = "Results",
-                    align = "top-center",
-                    elements = menuElements,
-                    itemHeight = "4vh",
-                },
-                function(data, menu)
-                    if data.current.value == "back" then
-                        if jurisdiction ~="federal" then
-                            RaceSelectedResults(position)
-                        else 
-                            TriggerEvent('democracy:openElecResMenu')
-                        end
-          
-                    elseif data.current.value == "exit_menu" then
-                        
-                        menu.close()
-                    else
-                        --donothing. it is the end of the road, finally
-    
-                    end
-                end,
-                function(data, menu)
-                    menu.close()
-                end
-            )
-        end, { location = location, position = position, jurisdiction=jurisdiction, state=vstate })
-    end
-
-  
+    end, { location = location, position = position, jurisdiction=jurisdiction, state=vstate })
+end

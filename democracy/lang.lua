@@ -25,10 +25,12 @@ Lang = {
         stop_running_confirmation    = "Are you sure you wish to stop running for %s? This cannot be undone.",
         stopped_running_success      = "You have removed your name from the slate for %s",
         keep_running                 = "Ok, you will remain in the running for %s",
+        you_are_on_ballot            = "You are now officially on the ballot for %s",
 
         -- Election-Menu
         menu_exit                    = "Exit Menu",
         menu_main                    = "Main Menu",
+        menu_back                    = "Back",
         vote_menu_title              = "%s Voting Booth",
         vote_menu_subtext            = "Vote or Run",
         vote_in_label                = "Vote in %s - %s",
@@ -42,6 +44,8 @@ Lang = {
         -- Vote-Submenu
         vote_menu_title_short        = "Vote",
         vote_menu_subtext_short      = "in %s, %s",
+        vote_for_label               = "Vote for %s",
+        vote_for_other_positions     = "Vote for Other Positions",
 
         -- Candidates-Submenu
         candidates_menu_title        = "Vote for Candidate",
@@ -52,6 +56,7 @@ Lang = {
         results_for_label            = "Results for %s",
         no_candidates_found          = "No candidates found for this position.",
         show_results_desc            = "Show results",
+        results_for_other_positions  = "Results for Other Positions",
 
         -- Discord-Webhook (Server)
         discord_running_title        = "%s is running for office!",
@@ -62,10 +67,18 @@ Lang = {
 
         discord_changed_vote_title   = "%s changed vote!",
         discord_changed_vote_desc    = "%s voted for %s of %s",
+        
+        new_election_started_title   = "A new election has begun in %s!",
+        new_election_started_desc    = "Visit a voting booth to register, run for office, or cast your vote.",
+        election_ended_title         = "The election has ended in %s!",
+        election_ended_desc          = "Results will be announced shortly.",
+        winner_announcement_title    = "%s has won the election for %s in %s!",
+        winner_announcement_desc     = "They will serve a term of %s weeks.",
 
         -- Admin / Election Officials
         no_election_officials        = "Only Election Officials are authorized to use this command.",
         welcome_election_official    = "Welcome Election Official",
+        term_limit_reached           = "You have reached the term limit of %s for the position of %s."
     },
 
     ["de-DE"] = {
@@ -90,10 +103,12 @@ Lang = {
         stop_running_confirmation    = "Bist du sicher, dass du nicht mehr für %s kandidieren willst? Das kann nicht rückgängig gemacht werden.",
         stopped_running_success      = "Dein Name wurde von der Liste für %s entfernt",
         keep_running                 = "Okay, du bleibst im Rennen für %s",
+        you_are_on_ballot            = "Du stehst jetzt offiziell für %s auf dem Stimmzettel",
 
         -- Election-Menu
         menu_exit                    = "Menü schließen",
         menu_main                    = "Hauptmenü",
+        menu_back                    = "Zurück",
         vote_menu_title              = "%s Wahlbüro",
         vote_menu_subtext            = "Abstimmen oder Kandidieren",
         vote_in_label                = "Abstimmen in %s – %s",
@@ -107,6 +122,8 @@ Lang = {
         -- Vote-Submenu
         vote_menu_title_short        = "Abstimmen",
         vote_menu_subtext_short      = "in %s, %s",
+        vote_for_label               = "Abstimmen für %s",
+        vote_for_other_positions     = "Für andere Positionen abstimmen",
 
         -- Candidates-Submenu
         candidates_menu_title        = "Für Kandidaten abstimmen",
@@ -117,6 +134,7 @@ Lang = {
         results_for_label            = "Ergebnisse für %s",
         no_candidates_found          = "Keine Kandidaten für diese Position gefunden.",
         show_results_desc            = "Ergebnisse anzeigen",
+        results_for_other_positions  = "Ergebnisse für andere Positionen",
 
         -- Discord-Webhook (Server)
         discord_running_title        = "%s kandidiert für ein Amt!",
@@ -127,10 +145,17 @@ Lang = {
 
         discord_changed_vote_title   = "%s hat seine Stimme geändert!",
         discord_changed_vote_desc    = "%s hat abgestimmt für %s von %s",
+        new_election_started_title   = "Eine neue Wahl hat in %s begonnen!",
+        new_election_started_desc    = "Besuche eine Wahlkabine, um dich zu registrieren, für ein Amt zu kandidieren oder deine Stimme abzugeben.",
+        election_ended_title         = "Die Wahl in %s ist beendet!",
+        election_ended_desc          = "Die Ergebnisse werden in Kürze bekannt gegeben.",
+        winner_announcement_title    = "%s hat die Wahl zum %s in %s gewonnen!",
+        winner_announcement_desc     = "Er/Sie wird eine Amtszeit von %s Wochen haben.",
 
         -- Admin / Election Officials
         no_election_officials        = "Nur Wahlbeamte dürfen diesen Befehl benutzen.",
         welcome_election_official    = "Willkommen Wahlbeamter",
+        term_limit_reached           = "Du hast das Amtszeitlimit von %s für die Position %s erreicht."
     },
 }
 

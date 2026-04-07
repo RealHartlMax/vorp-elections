@@ -33,6 +33,12 @@ Config.Positions ={
     {name = 'Mayor', jurisdiction='Local', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
 }
 
+Config.ElectionCycle = {
+    Enabled = true, -- Enable or disable automatic election cycles
+    DurationDays = 7, -- How many days an election cycle lasts
+    HourToRun = 3, -- 24 hour format, 3 = 3am
+}
+
 Config.VoteRadius = 2.0
 
 Config.VotingLocations = { -- https://filmcrz.github.io/blips/
