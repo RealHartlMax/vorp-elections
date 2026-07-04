@@ -25,6 +25,23 @@ TriggerEvent("vorp_menu:getData",function(cb)
 local votePrompt
 local votePromptGroup = GetRandomIntInRange(0, 0xFFFFFF)
 local votePromptReady = false
+local votingBlips = {}
+
+local function AddBlipForCoordNative(blipType, x, y, z)
+    return Citizen.InvokeNative(0x554D9D53F696D002, blipType, x, y, z)
+end
+
+local function SetBlipSpriteNative(blip, sprite, p2)
+    Citizen.InvokeNative(0x74F74D3207ED525C, blip, sprite, p2)
+end
+
+local function SetBlipScaleNative(blip, scale)
+    Citizen.InvokeNative(0xD38744167B2FA257, blip, scale)
+end
+
+local function SetBlipNameNative(blip, name)
+    Citizen.InvokeNative(0x9CB1A1623062F402, blip, name)
+end
 
 local function PromptRegisterBeginNative()
     return Citizen.InvokeNative(0x04F97DE45A519419)
@@ -62,6 +79,22 @@ local function PromptHasStandardModeCompletedNative(prompt)
     return Citizen.InvokeNative(0xC92AC953F0A982AE, prompt)
 end
 
+local function CreateVotingBlips()
+    if Config.ShowVotingBlips == false then
+        return
+    end
+
+    for _, v in pairs(Config.VotingLocations) do
+        if v.blip and v.coords then
+            local blip = AddBlipForCoordNative(1664425300, v.coords.x, v.coords.y, v.coords.z)
+            SetBlipSpriteNative(blip, v.hash or -272216216, true)
+            SetBlipScaleNative(blip, v.scale or 1.0)
+            SetBlipNameNative(blip, v.name or _L('press_to_vote'))
+            table.insert(votingBlips, blip)
+        end
+    end
+end
+
 local function SetupVotePrompt()
     if votePromptReady then
         return
@@ -81,6 +114,7 @@ end
 
 -- Following thread looks for ped in radius of voting locations and shows a native prompt.
 Citizen.CreateThread(function()
+    CreateVotingBlips()
     SetupVotePrompt()
 
     while true do
@@ -88,18 +122,26 @@ Citizen.CreateThread(function()
         local coords = GetEntityCoords(playerPed)
         local closestLocation
         local closestDistance = math.huge
+        local requiresBlip = Config.OnlyBlipVotingLocations == true
 
         for _, v in pairs(Config.VotingLocations) do
-            local boothCoords = vector3(v.coords.x, v.coords.y, v.coords.z)
-            local distance = #(coords - boothCoords)
+            local locationCanVote = v.canVote ~= false
+            if locationCanVote and ((not requiresBlip) or v.blip) then
+                local boothCoords = vector3(v.coords.x, v.coords.y, v.coords.z)
+                local distance = #(coords - boothCoords)
 
-            if distance < closestDistance then
-                closestDistance = distance
-                closestLocation = v
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestLocation = v
+                end
             end
         end
 
-        if closestLocation and closestDistance <= Config.VoteRadius then
+        local inRange = closestLocation and closestDistance <= Config.VoteRadius
+        PromptSetEnabledNative(votePrompt, inRange)
+        PromptSetVisibleNative(votePrompt, inRange)
+
+        if inRange then
             local groupLabel = CreateVarString(10, "LITERAL_STRING", _L('vote_in_label', closestLocation.city, closestLocation.region))
             PromptSetActiveGroupThisFrameNative(votePromptGroup, groupLabel)
 
