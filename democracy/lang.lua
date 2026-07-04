@@ -30,6 +30,7 @@ Lang = {
         nui_publish_confirm_message  = "Publish all election results now?",
         nui_publish_confirm_yes      = "Yes",
         nui_publish_confirm_no       = "No",
+        nui_loading                  = "Loading...",
         nui_admin_select_required    = "Please select at least one office.",
         nui_admin_scope_type         = "Election Scope",
         nui_admin_scope_all          = "All regions and cities",
@@ -58,6 +59,7 @@ Lang = {
         vote_casted                  = "You have cast your vote for %s %s in %s %s",
         new_vote_confirmation        = "You are about to place a vote for %s %s in %s %s. Press y to confirm.",
         old_vote_kept                = "Ok, your old vote stands, your new vote has been cancelled",
+        vote_already_cast_locked     = "You have already voted in this race. Vote changes are not allowed.",
 
         -- Running / Stop Running
         register_to_vote_prompt      = "Register to Vote in %s",
@@ -100,6 +102,18 @@ Lang = {
         show_results_desc            = "Show results",
         results_for_other_positions  = "Results for Other Positions",
 
+        -- Voting booth names
+        booth_strawberry             = "Strawberry Voting Booth",
+        booth_blackwater             = "Blackwater Voting Booth",
+        booth_armadillo              = "Armadillo Voting Booth",
+        booth_tumbleweed             = "Tumbleweed Voting Booth",
+        booth_valentine              = "Valentine Voting Booth",
+        booth_rhodes                 = "Rhodes Voting Booth",
+        booth_saint_denis            = "Saint Denis Voting Booth",
+        booth_annesburg              = "Annesburg Voting Booth",
+        booth_escalera               = "Escalera Voting Booth",
+        booth_chuparosa              = "Chuparosa Voting Booth",
+
         -- Discord-Webhook (Server)
         discord_running_title        = "%s is running for office!",
         discord_running_desc         = "%s entered the race for %s of %s, %s",
@@ -115,11 +129,12 @@ Lang = {
         election_ended_title         = "The election has ended in %s!",
         election_ended_desc          = "Results will be announced shortly.",
         discord_results_archive_title = "Election Archive for %s",
-        discord_results_archive_empty = "No winner data available for %s.",
+        discord_results_archive_empty = "No result data available for %s.",
         discord_results_total_votes   = "Total votes cast: %s",
         winner_announcement_title    = "%s has won the election for %s in %s!",
         winner_announcement_desc     = "They will serve a term of %s weeks.",
         election_commands_enabled    = "Elections have been started. Voting booths are now active.",
+        election_global_announcement = "A new election has started. Voting booths are now open for everyone.",
         election_commands_disabled   = "Elections have been ended. Voting booths are now inactive.",
         election_finalize_started    = "Election finalization started. Results archive and cleanup are processing.",
         elections_not_active         = "Elections are currently inactive.",
@@ -158,6 +173,7 @@ Lang = {
         nui_publish_confirm_message  = "Alle Wahlergebnisse jetzt veröffentlichen?",
         nui_publish_confirm_yes      = "Ja",
         nui_publish_confirm_no       = "Nein",
+        nui_loading                  = "Lade...",
         nui_admin_select_required    = "Bitte mindestens ein Amt auswählen.",
         nui_admin_scope_type         = "Wahlbereich",
         nui_admin_scope_all          = "Alle Regionen und Orte",
@@ -186,6 +202,7 @@ Lang = {
         vote_casted                  = "Du hast deine Stimme für %s %s in %s %s abgegeben",
         new_vote_confirmation        = "Du bist im Begriff, für %s %s in %s %s abzustimmen. Drücke j zum Bestätigen.",
         old_vote_kept                = "Okay, deine alte Stimme bleibt gültig, deine neue Stimme wurde abgebrochen",
+        vote_already_cast_locked     = "Du hast in diesem Rennen bereits abgestimmt. Nachträgliche Änderungen sind nicht erlaubt.",
 
         -- Running / Stop Running
         register_to_vote_prompt      = "Melde dich zum Wählen in %s an",
@@ -228,6 +245,18 @@ Lang = {
         show_results_desc            = "Ergebnisse anzeigen",
         results_for_other_positions  = "Ergebnisse für andere Positionen",
 
+        -- Namen der Wahlbüros
+        booth_strawberry             = "Wahlbüro Strawberry",
+        booth_blackwater             = "Wahlbüro Blackwater",
+        booth_armadillo              = "Wahlbüro Armadillo",
+        booth_tumbleweed             = "Wahlbüro Tumbleweed",
+        booth_valentine              = "Wahlbüro Valentine",
+        booth_rhodes                 = "Wahlbüro Rhodes",
+        booth_saint_denis            = "Wahlbüro Saint Denis",
+        booth_annesburg              = "Wahlbüro Annesburg",
+        booth_escalera               = "Wahlbüro Escalera",
+        booth_chuparosa              = "Wahlbüro Chuparosa",
+
         -- Discord-Webhook (Server)
         discord_running_title        = "%s kandidiert für ein Amt!",
         discord_running_desc         = "%s tritt an für %s von %s, %s",
@@ -242,11 +271,12 @@ Lang = {
         election_ended_title         = "Die Wahl in %s ist beendet!",
         election_ended_desc          = "Die Ergebnisse werden in Kürze bekannt gegeben.",
         discord_results_archive_title = "Wahl-Archiv für %s",
-        discord_results_archive_empty = "Keine Gewinnerdaten für %s vorhanden.",
+        discord_results_archive_empty = "Keine Ergebnisdaten für %s vorhanden.",
         discord_results_total_votes   = "Gesamt abgegebene Stimmen: %s",
         winner_announcement_title    = "%s hat die Wahl zum %s in %s gewonnen!",
         winner_announcement_desc     = "Er/Sie wird eine Amtszeit von %s Wochen haben.",
         election_commands_enabled    = "Die Wahlen wurden gestartet. Wahlbüros sind jetzt aktiv.",
+        election_global_announcement = "Eine neue Wahl wurde gestartet. Die Wahlbüros sind jetzt für alle geöffnet.",
         election_commands_disabled   = "Die Wahlen wurden beendet. Wahlbüros sind jetzt deaktiviert.",
         election_finalize_started    = "Wahlabschluss gestartet. Archivpost und Bereinigung laufen.",
         elections_not_active         = "Aktuell sind keine Wahlen aktiv.",

@@ -5,6 +5,7 @@ const closeBtn = document.getElementById('closeBtn');
 const modeVoteBtn = document.getElementById('modeVote');
 const modeRunBtn = document.getElementById('modeRun');
 const modeResultsBtn = document.getElementById('modeResults');
+const loadingHint = document.getElementById('loadingHint');
 const scopeRow = document.getElementById('scopeRow');
 const scopeLabel = document.getElementById('scopeLabel');
 const scopeSelect = document.getElementById('scopeSelect');
@@ -43,11 +44,13 @@ let resourceName = 'democracy';
 let state = {
   open: false,
   mode: 'vote',
+  modeRequestId: 0,
   city: '',
   region: '',
   gameState: '',
   labels: {},
   activeScopeInfo: '',
+  runPositions: [],
   positions: [],
   selectedPosition: null,
   selectedCandidate: null,
@@ -210,7 +213,21 @@ const post = async (endpoint, data = {}) => {
   return response.json();
 };
 
+const setLoading = (isLoading) => {
+  const disabled = isLoading === true;
+  loadingHint.classList.toggle('hidden', !disabled);
+
+  modeVoteBtn.disabled = disabled;
+  modeRunBtn.disabled = disabled;
+  modeResultsBtn.disabled = disabled;
+  scopeSelect.disabled = disabled;
+  submitBtn.disabled = disabled;
+  publishResultsBtn.disabled = disabled;
+  registerBtn.disabled = disabled;
+};
+
 const setMode = async (mode) => {
+  const requestId = ++state.modeRequestId;
   state.mode = mode;
   state.selectedPosition = null;
   state.selectedCandidate = null;
@@ -223,7 +240,12 @@ const setMode = async (mode) => {
   const isRegister = mode === 'register';
   const isResults = mode === 'results';
   const isAdmin = mode === 'admin';
+  const showLoadingHint = isVote || isResults || isAdmin;
   const showPublish = isAdmin || (isResults && state.canPublishResults);
+
+  setLoading(showLoadingHint);
+
+  try {
 
   renderActiveScopeInfo(mode);
 
@@ -269,16 +291,29 @@ const setMode = async (mode) => {
   if (isAdmin) {
     configureAdminScopeFilter();
     await refreshAdminPositions();
+    if (requestId !== state.modeRequestId || state.mode !== mode) {
+      return;
+    }
     return;
+  }
+
+  if (isRun) {
+    state.positions = Array.isArray(state.runPositions) ? [...state.runPositions] : [];
   }
 
   if (isVote) {
     const payload = await post('getVoteablePositions');
+    if (requestId !== state.modeRequestId || state.mode !== mode) {
+      return;
+    }
     state.positions = payload?.positions || [];
   }
 
   if (isResults) {
     const payload = await post('getResultPositions');
+    if (requestId !== state.modeRequestId || state.mode !== mode) {
+      return;
+    }
     state.positions = payload?.positions || [];
   }
 
@@ -287,6 +322,11 @@ const setMode = async (mode) => {
     renderResultsRows([]);
   } else {
     renderCandidates();
+  }
+  } finally {
+    if (requestId === state.modeRequestId) {
+      setLoading(false);
+    }
   }
 };
 
@@ -521,6 +561,7 @@ window.addEventListener('message', (event) => {
   state.labels = data.labels || {};
   state.activeScopeInfo = data.activeScopeInfo || '';
   state.positions = data.positions || [];
+  state.runPositions = Array.isArray(data.positions) ? [...data.positions] : [];
   state.adminScopeOptions = data.adminScopeOptions || [];
   state.adminSelectedScope = data.selectedAdminScope || 'all';
   state.autoSelectFirst = data.autoSelectFirst === true;
@@ -543,6 +584,7 @@ window.addEventListener('message', (event) => {
   publishConfirmText.textContent = state.labels.publish_confirm_message || 'Publish results now?';
   publishConfirmYes.textContent = state.labels.publish_confirm_yes || 'Yes';
   publishConfirmNo.textContent = state.labels.publish_confirm_no || 'No';
+  loadingHint.textContent = state.labels.loading || 'Loading...';
   positionLabel.textContent = state.labels.select_position || 'Select Office';
   candidateLabel.textContent = state.labels.select_candidate || 'Select Candidate';
   scopeLabel.textContent = state.labels.select_scope || 'Select Scope';

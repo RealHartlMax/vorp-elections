@@ -9,7 +9,13 @@ local MySQL = MySQL
 
 function _L(str, ...)
     if Translations[str] then
-        return string.format(Translations[str], ...)
+    local ok, formatted = pcall(string.format, Translations[str], ...)
+    if ok then
+      return formatted
+    end
+
+    print(('[democracy] Translation format fallback for key "%s": %s'):format(tostring(str), tostring(formatted)))
+    return tostring(Translations[str])
     else
         print('Translation not found in server: ' .. str)
         return 'Translation not found: ' .. str
@@ -235,6 +241,7 @@ local function getSetupPositionsForScope(scopeFilter)
 end
 
 local function setElectionActive(active, selectedPositions, scopeFilter)
+  local wasActive = ElectionRuntimeState.Active
   ElectionRuntimeState.Active = active == true
   if ElectionRuntimeState.Active then
     ElectionRuntimeState.ActivePositions = normalizeSelectedPositions(selectedPositions)
@@ -250,6 +257,10 @@ local function setElectionActive(active, selectedPositions, scopeFilter)
     type = ElectionRuntimeState.ScopeFilter.type,
     values = cloneArray(ElectionRuntimeState.ScopeFilter.values)
   })
+
+  if ElectionRuntimeState.Active and not wasActive then
+    TriggerClientEvent('vorp:TipBottom', -1, (_L('election_global_announcement')), 6000)
+  end
 end
 
 VORP.addNewCallBack('democracy:getElectionActive', function(source, cb)
@@ -954,6 +965,24 @@ VORP.addNewCallBack('democracy:hasvotervotedalready', function(source, cb, param
   end)
 end)
 
+local function buildVoteLookupQuery(jurisdiction, position, city, region, state, charId)
+  local query
+  local queryParams
+
+  if jurisdiction == "state" then
+    query = 'SELECT voteID FROM ballot_votes WHERE office=@position AND state=@state AND voterID=@charid LIMIT 1'
+    queryParams = { ['@position'] = position, ['@state'] = state, ['@charid'] = charId }
+  elseif jurisdiction == "county" then
+    query = 'SELECT voteID FROM ballot_votes WHERE office=@position AND location=@region AND state=@state AND voterID=@charid LIMIT 1'
+    queryParams = { ['@position'] = position, ['@region'] = region, ['@state'] = state, ['@charid'] = charId }
+  else
+    query = 'SELECT voteID FROM ballot_votes WHERE office=@position AND location=@city AND voterID=@charid LIMIT 1'
+    queryParams = { ['@position'] = position, ['@city'] = city, ['@charid'] = charId }
+  end
+
+  return query, queryParams
+end
+
 
 RegisterServerEvent('addNewVote')
 AddEventHandler('addNewVote', function(city, region, position, jurisdiction, candidateid, ballotid, state)
@@ -978,49 +1007,29 @@ AddEventHandler('addNewVote', function(city, region, position, jurisdiction, can
     location = city
   end
   
-      query = 'INSERT INTO ballot_votes (voterID, ballotID, office, jurisdiction, location, state) VALUES (@voterID, @ballotID, @position, @jurisdiction, @location, @state) '
-      queryParams = {['@voterID'] = charId, ['@ballotID'] =ballotid, ['@position'] = position, ['@jurisdiction'] = jurisdiction, ['@location'] = location, ['@state'] = state }
-      MySQL.Async.execute(query, queryParams)
+  local lookupQuery, lookupParams = buildVoteLookupQuery(jurisdiction, position, city, region, state, charId)
+  MySQL.single(lookupQuery, lookupParams, function(existingVote)
+    if existingVote then
+      TriggerClientEvent("vorp:TipBottom", _source, (_L('vote_already_cast_locked')), 4000)
+      return
+    end
 
+    query = 'INSERT INTO ballot_votes (voterID, ballotID, office, jurisdiction, location, state) VALUES (@voterID, @ballotID, @position, @jurisdiction, @location, @state) '
+    queryParams = {['@voterID'] = charId, ['@ballotID'] =ballotid, ['@position'] = position, ['@jurisdiction'] = jurisdiction, ['@location'] = location, ['@state'] = state }
+    MySQL.Async.execute(query, queryParams)
 
-      local title = _L('discord_voted_title', playername)
-      local description = _L('discord_voted_desc', playername, position, location)
-      SendToDiscordWebhook(title,description, 'activity')
+    local title = _L('discord_voted_title', playername)
+    local description = _L('discord_voted_desc', playername, position, location)
+    SendToDiscordWebhook(title,description, 'activity')
+  end)
 end)
 
 
 RegisterServerEvent('updateVote')
 AddEventHandler('updateVote', function(city, region, position, jurisdiction, candidateid, ballotid, state)
   local _source = source
-  if not isPositionActive(position) then
-    TriggerClientEvent("vorp:TipBottom", _source, (_L('elections_not_active')), 4000)
-    return
-  end
-
-  local user = VorpCore.getUser(_source) 
-  local Character = VorpCore.getUser(_source).getUsedCharacter
-  local playername = Character.firstname .. ' ' .. Character.lastname
-  local charId = user.getUsedCharacter.charIdentifier
-  local location
-
-  local query, queryParams
-  if jurisdiction =="state" then
-      location = state
-  elseif jurisdiction =="county" then
-      location = region
-  elseif jurisdiction =="local" then
-    location = city
-  end
-  
-      query = 'Update ballot_votes set ballotID = @ballotid where voterID= @voterID AND office= @position and location = @location and state = @state'
-      queryParams = {['@ballotid'] =ballotid, ['@voterID'] = charId, ['@position'] = position, ['@location'] = location, ['@state'] = state }
-      MySQL.Async.execute(query, queryParams)
-
-      local title = _L('discord_changed_vote_title', playername)
-      local description = _L('discord_changed_vote_desc', playername, position, location)
-      SendToDiscordWebhook(title,description, 'activity')
-      
-    end)
+  TriggerClientEvent("vorp:TipBottom", _source, (_L('vote_already_cast_locked')), 4000)
+end)
 
 
 RegisterServerEvent('openelectionresultsmenu')
@@ -1177,10 +1186,6 @@ end
 function StartNewElectionCycle(state)
     MySQL.Async.execute('INSERT INTO election_cycles (state) VALUES (@state)', {['@state'] = state}, function()
         print("Started a new election cycle for " .. state)
-        -- Announce the start of a new election
-        local title = _L('new_election_started_title', state)
-        local description = _L('new_election_started_desc')
-        SendToDiscordWebhook(title, description, 'results')
     end)
 end
 
@@ -1371,8 +1376,8 @@ local function collectStateRaceResults(state, cb)
   end)
 end
 
-local function buildResultsArchiveText(state, winners, raceRows)
-  if (not winners or #winners == 0) and (not raceRows or #raceRows == 0) then
+local function buildResultsArchiveText(state, raceRows)
+  if not raceRows or #raceRows == 0 then
     return _L('discord_results_archive_empty', state)
   end
 
@@ -1412,7 +1417,7 @@ local function buildResultsArchiveText(state, winners, raceRows)
   end)
 
   local lines = {
-    string.format(_L('discord_results_total_votes'), tostring(overallVotes)),
+    _L('discord_results_total_votes', tostring(overallVotes)),
     ''
   }
 
@@ -1427,13 +1432,11 @@ local function buildResultsArchiveText(state, winners, raceRows)
       return a.votes > b.votes
     end)
 
-    for _, candidate in ipairs(race.candidates) do
-      local percent = 0
-      if race.totalVotes > 0 then
-        percent = roundToOneDecimal((candidate.votes / race.totalVotes) * 100)
+    for index, candidate in ipairs(race.candidates) do
+      if index > 5 then
+        break
       end
-
-      table.insert(lines, string.format('- %s: %s %s (%.1f%%)', candidate.name, tostring(candidate.votes), _L('nui_votes_suffix'), percent))
+      table.insert(lines, string.format('- %s: %s %s', candidate.name, tostring(candidate.votes), _L('nui_votes_suffix')))
     end
 
     table.insert(lines, '')
@@ -1462,9 +1465,6 @@ local function StoreWinner(winner, state)
         ['@termEnd'] = termEndDate
     })
 
-    local title = _L('winner_announcement_title', winner.candidate_name, winner.position, state)
-    local description = _L('winner_announcement_desc', termInWeeks)
-    SendToDiscordWebhook(title, description, 'results')
     assignWinnerOfficeJob(winner, state)
 end
 
@@ -1571,17 +1571,13 @@ end
 
       collectStateRaceResults(state, function(raceRows)
         local archiveTitle = _L('discord_results_archive_title', state)
-        local archiveDescription = buildResultsArchiveText(state, winners, raceRows)
+        local archiveDescription = buildResultsArchiveText(state, raceRows)
         SendToDiscordWebhook(archiveTitle, archiveDescription, 'results')
       end)
 
       MySQL.Async.execute('DELETE FROM ballot WHERE state = @state', {['@state'] = state})
       MySQL.Async.execute('DELETE FROM ballot_votes WHERE state = @state', {['@state'] = state})
       MySQL.Async.execute('DELETE FROM ballot_registration WHERE state = @state', {['@state'] = state})
-
-      local title = _L('election_ended_title', state)
-      local description = _L('election_ended_desc')
-      SendToDiscordWebhook(title, description, 'results')
 
       StartNewElectionCycle(state)
     end)

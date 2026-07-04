@@ -2,7 +2,7 @@ Config = Config or {}
 
 Config.VotingLocations = { -- https://filmcrz.github.io/blips/
   {
-    name = 'Stawberry Voting Booth',
+    nameKey = 'booth_strawberry',
     city = 'Strawberry',
     region = 'West Elizabeth',
     state = 'USA',
@@ -13,7 +13,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = -1767.5093994140625, y = -381.3931884765625, z = 157.83193969726565 }
   },
   {
-    name = 'Blackwater Voting Booth',
+    nameKey = 'booth_blackwater',
     city = 'Blackwater',
     region = 'West Elizabeth',
     state = 'USA',
@@ -24,7 +24,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = -797.2415, y = -1197.8335, z = 44.1936 }
   },
   {
-    name = 'Armadillo Voting Booth',
+    nameKey = 'booth_armadillo',
     city = 'Armadillo',
     region = 'New Austin',
     state = 'USA',
@@ -35,7 +35,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = -3662.2265625, y = -2624.84521484375, z = -13.48766803741455 }
   },
   {
-    name = 'Tumbleweed Voting Booth',
+    nameKey = 'booth_tumbleweed',
     city = 'Tumbleweed',
     region = 'New Austin',
     state = 'USA',
@@ -46,7 +46,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = -5487.060546875, y = -2939.2705078125, z = -0.28708344697952 }
   },
   {
-    name = 'Valentine Voting Booth',
+    nameKey = 'booth_valentine',
     city = 'Valentine',
     region = 'New Hanover',
     state = 'USA',
@@ -57,7 +57,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = -172.77517700195312, y = 634.057373046875, z = 114.18964385986328 }
   },
   {
-    name = 'Rhodes Voting Booth',
+    nameKey = 'booth_rhodes',
     city = 'Rhodes',
     region = 'Lemoyne',
     state = 'USA',
@@ -68,7 +68,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = 1289.6468505859375, y = -1300.8714599609375, z = 77.14014434814453 }
   },
   {
-    name = 'Saint Denis Voting Booth',
+    nameKey = 'booth_saint_denis',
     city = 'St Denis',
     region = 'Lemoyne',
     state = 'USA',
@@ -79,7 +79,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = 2744.698486328125, y = -1397.2818603515625, z = 46.2830696105957 }
   },
   {
-    name = 'Annesburg Voting Booth',
+    nameKey = 'booth_annesburg',
     city = 'Annesburg',
     region = 'New Hanover',
     state = 'USA',
@@ -90,7 +90,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = 2930.1513671875, y = 1279.6221923828125, z = 44.75285339355469 }
   },
   {
-    name = 'Escalera Voting Booth',
+    nameKey = 'booth_escalera',
     city = 'Escalera',
     region = 'Nuevo Paraiso',
     state = 'Mexico',
@@ -101,7 +101,7 @@ Config.VotingLocations = { -- https://filmcrz.github.io/blips/
     coords = { x = -262.8, y = -3236.7, z = 131.7 }
   },
   {
-    name = 'Chuparosa Voting Booth',
+    nameKey = 'booth_chuparosa',
     city = 'Chuparosa',
     region = 'Nuevo Paraiso',
     state = 'Mexico',

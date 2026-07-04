@@ -566,6 +566,7 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
         publish_confirm_message = _L('nui_publish_confirm_message'),
         publish_confirm_yes = _L('nui_publish_confirm_yes'),
         publish_confirm_no = _L('nui_publish_confirm_no'),
+        loading = _L('nui_loading'),
         admin_select_required = _L('nui_admin_select_required'),
         admin_select_scope = _L('nui_admin_select_scope'),
         admin_scope_type = _L('nui_admin_scope_type'),
@@ -775,11 +776,21 @@ local function CreateVotingBlips()
     end
 
     for _, v in pairs(Config.VotingLocations) do
-        if v.blip and v.coords then
+        local locationCanVote = v.canVote ~= false
+        local locationIsActive = IsLocationEnabled(v.city, v.region, v.state)
+        local hasActivePositions = HasAnyActivePositionAtLocation(v.city, v.region, v.state)
+
+        if v.blip and v.coords and locationCanVote and locationIsActive and hasActivePositions then
             local blip = AddBlipForCoordNative(1664425300, v.coords.x, v.coords.y, v.coords.z)
             SetBlipSpriteNative(blip, v.hash or -272216216, true)
             SetBlipScaleNative(blip, v.scale or 1.0)
-            SetBlipNameNative(blip, v.name or _L('press_to_vote'))
+            local blipName = _L('press_to_vote')
+            if v.nameKey and Translations[v.nameKey] then
+                blipName = _L(v.nameKey)
+            elseif v.name then
+                blipName = v.name
+            end
+            SetBlipNameNative(blip, blipName)
             table.insert(votingBlips, blip)
         end
     end
@@ -1312,34 +1323,16 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:hasvotervotedalready", function(cb)
         if fromNui then
             if cb then
-                TriggerEvent("vorp:TipBottom", (_L('vote_reset')), 4000)
-                TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
+                TriggerEvent("vorp:TipBottom", (_L('vote_already_cast_locked')), 4000)
             else
                 TriggerServerEvent('addNewVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
+                TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000)
             end
-
-            TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000)
             return
         end
 
-        local result = cb
         if cb then 
-            local button = _L('already_voted_prompt')
-            local placeholder = _L('placeholder_yes_no')
-            TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
-                print("User input received:", answer)
-                if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
-                    TriggerEvent("vorp:TipBottom", (_L('vote_reset')), 4000) 
-                    TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
-                    TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000) 
-                    if not fromNui then
-                        OpenVoteMenu(registered, city, region, onBallot, vstate)
-                    end
-                else
-                    TriggerEvent("vorp:TipBottom", (_L('old_vote_kept')), 4000) 
-                end
-            end)
-        
+            TriggerEvent("vorp:TipBottom", (_L('vote_already_cast_locked')), 4000)
         else
             local button = _L('new_vote_confirmation', jurisdiction, position, vcity, vregion)
             local placeholder = _L('placeholder_yes_no')

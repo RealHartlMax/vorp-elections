@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS `ballot_votes` (
   `jurisdiction` varchar(50) DEFAULT NULL,
   `location` varchar(50) DEFAULT NULL,
   `state` varchar(50) DEFAULT 'USA',
-  PRIMARY KEY (`voteID`)
+  PRIMARY KEY (`voteID`),
+  UNIQUE KEY `uq_ballot_votes_voter_race` (`voterID`,`office`,`jurisdiction`,`location`,`state`)
 ) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='contains the votes for candidates (in the ballot table)';
 
 CREATE TABLE IF NOT EXISTS `election_cycles` (
