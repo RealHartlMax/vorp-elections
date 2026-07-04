@@ -1,6 +1,9 @@
 local VORPcore = {} -- core object
 local Translations = Lang[Config.Lang]
 
+---@diagnostic disable-next-line: undefined-global
+local CreateVarString = CreateVarString
+
 function _L(str, ...)
     if Translations[str] then
         return string.format(Translations[str], ...)
@@ -26,7 +29,8 @@ Citizen.CreateThread(function()
         local coords = GetEntityCoords(playerPed)
         
         for k, v in pairs(Config.VotingLocations) do 
-            local distance = GetDistanceBetweenCoords(coords, v.coords.x, v.coords.y, v.coords.z, true)
+            local boothCoords = vector3(v.coords.x, v.coords.y, v.coords.z)
+            local distance = #(coords - boothCoords)
             
             if distance < 10.0 then
                 DrawTxt(_L('press_to_vote'), 0.50, 0.85, 0.7, 0.7, true, 255, 255, 255, 255, true)
@@ -179,7 +183,6 @@ function OpenRunMenu(registered, city, region, onBallot, state)
                 TriggerServerEvent('addballotname', vcity, vregion, data.current.value, vstate)
                 local message = _L('you_are_on_ballot', data.current.value)
                 TriggerEvent("vorp:TipBottom", (message), 4000)
-                local nowonBallot = true
                 menu.close()
             end
         end,
@@ -198,8 +201,13 @@ function OpenVoteMenu(registered, city, region, onBallot, state)
     
     local addMenuElement
     for k,v in pairs(Config.Positions) do
-        addMenuElement ={ label = v.name, value = v.name, desc = _L('vote_for_label', v.name) }
-        table.insert(menuElements, addMenuElement)  
+        for i, s in ipairs(v.states) do
+            if s == vstate then
+                addMenuElement ={ label = v.name, value = v.name, desc = _L('vote_for_label', v.name) }
+                table.insert(menuElements, addMenuElement)
+                break
+            end
+        end
     end
     addMenuElement= { label = _L('menu_main'), value = "back", desc = "Back to Main Menu" }
     table.insert(menuElements,addMenuElement)
@@ -263,9 +271,9 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
         end
 
         for k, v in pairs(cb) do
-            label = cb[k].name
-            value = cb[k].cid
-            ballotID = cb[k].ballotID
+            local label = cb[k].name
+            local value = cb[k].cid
+            local ballotID = cb[k].ballotID
             
             addMenuElement = { label = label, value = value, ballotid =ballotID, desc = _L('vote_for_candidate_desc', label) }
             table.insert(menuElements, addMenuElement)
@@ -317,7 +325,7 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
     local candidateid = candidateid
     local ballotid =ballotid
     local onBallot = onballot
-    print("from client:", vcity, vregion, position, jurisdiction,"ballot:", ballotId, "cand:", candidateid)
+    print("from client:", vcity, vregion, position, jurisdiction,"ballot:", ballotid, "cand:", candidateid)
 
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:hasvotervotedalready", function(cb)
         local result = cb
@@ -393,7 +401,7 @@ RegisterCommand("electionresults", function()
             end  
     end)
   
-end)
+end, false)
 
 RegisterNetEvent('democracy:openElecResMenu')
 AddEventHandler('democracy:openElecResMenu', function()
@@ -433,6 +441,8 @@ AddEventHandler('democracy:openElecResMenu', function()
         end
     )
 end)
+
+local showResults
 
 function RaceSelectedResults(position)
     VORPMenu.CloseAll()
@@ -522,12 +532,9 @@ function RaceSelectedResults(position)
     )
 end
 
-function showResults(position, location, jurisdiction, state)
+showResults = function(position, location, jurisdiction, state)
     VORPMenu.CloseAll()
-    local vcity = city
-    local vregion = region
     local vstate = state
-    local position = position
     local menuElements = {}
     local addMenuElement
     local position  = position
@@ -543,9 +550,8 @@ function showResults(position, location, jurisdiction, state)
             subtitle = "No candidates"
         end
         for k, v in pairs(cb) do
-            
-            label = cb[k].candidate_name.." - "..cb[k].votes.." votes"
-            value = cb[k].candidate_name
+            local label = cb[k].candidate_name.." - "..cb[k].votes.." votes"
+            local value = cb[k].candidate_name
             
             addMenuElement = { label = label, value = value }
             table.insert(menuElements, addMenuElement)

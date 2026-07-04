@@ -17,20 +17,47 @@ Config.Prompts = {
 
 --Job name for elections allowed folks.  Admin is allowed to run results by default
 Config.ElectionOfficials={
-   {'electionofficial'}
+   'electionofficial'
+}
+
+-- Term limit scope controls.
+-- ByState=true means the same office in another state is counted separately.
+-- WindowYears limits counting to recent wins (set nil or 0 to disable date window).
+Config.TermLimitScope = {
+    ByState = true,
+    WindowYears = 30
 }
 
 --Position name and the term in weeks
 --jurisdiction can be Federal, Regional or Local, termlimit not yet functional
 Config.Positions ={
-    {name = 'President', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}}, 
-    {name = 'Chief Marshall', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
-    {name = 'Chief Justice', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
-    {name = 'Congress East',jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
-    {name = 'Congress West', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
-    {name = 'Governor', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
-    {name = 'Head Doctor', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
-    {name = 'Mayor', jurisdiction='Local', term = 8, termlimit=2, states = {'USA', 'Mexico'}},
+   -- USA federal offices (1870-1899 flavor)
+   {name = 'President (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'Secretary of War (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'Chief Justice (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'Senator East (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'Senator West (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
+
+   -- Mexico federal offices (1870-1899 flavor)
+   {name = 'Presidente (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'Ministro de Guerra (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'Presidente de la Suprema Corte (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'Diputado del Norte (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'Diputado del Sur (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
+
+   -- USA state offices
+   {name = 'Governor (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'State Marshal (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'Surgeon General (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+
+   -- Mexico state offices
+   {name = 'Gobernador (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'Jefe Rural (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'Medico Jefe (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+
+   -- Local offices
+   {name = 'Mayor (USA)', jurisdiction='Local', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'Alcalde (Mexico)', jurisdiction='Local', term = 8, termlimit=2, states = {'Mexico'}},
 }
 
 Config.ElectionCycle = {

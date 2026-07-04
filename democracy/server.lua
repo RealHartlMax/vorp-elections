@@ -1,8 +1,11 @@
 VORP = exports.vorp_core:vorpAPI()
 local VorpCore = {}
-local ServerRPC = exports.vorp_core:ServerRpcCall() --[[@as ServerRPC]] -- for intellisense
+local ServerRPC = exports.vorp_core:ServerRpcCall()
 local VORPutils = {}
 local Translations = Lang[Config.Lang]
+
+---@diagnostic disable-next-line: undefined-global
+local MySQL = MySQL
 
 function _L(str, ...)
     if Translations[str] then
@@ -19,6 +22,20 @@ end)
 TriggerEvent("getCore",function(core)
     VorpCore = core
 end)
+
+local function getUserGroup(user)
+  if type(user.getGroup) == 'function' then
+    return user.getGroup()
+  end
+  return user.getGroup
+end
+
+local function getUserJob(user)
+  if type(user.getJob) == 'function' then
+    return user.getJob()
+  end
+  return user.getJob
+end
 
 RegisterServerEvent('removeFromBallot')
 AddEventHandler('removeFromBallot', function()
@@ -109,27 +126,46 @@ end)
 VORP.addNewCallBack("democracy:isAdmin", function(source, cb, params)
   local _source = source
   local user = VorpCore.getUser(_source)
+  local userGroup = getUserGroup(user)
+  local userJob = getUserJob(user)
 
-  local isAllowed = false
-  for k, v in pairs(Config.ElectionOfficials) do
-      for _, group in ipairs(v) do
-          if group == user.getGroup then
-              isAllowed = true
-              break
-          end
+  local isAllowed = userGroup == 'admin'
+  if not isAllowed then
+    for _, group in ipairs(Config.ElectionOfficials) do
+      if group == userGroup or group == userJob then
+        isAllowed = true
+        break
       end
       if isAllowed then
-          break
+        break
       end
+    end
   end
   
   cb(isAllowed)
-  
-
-
-    cb(isAllowed)  
-
 end)
+
+local function getTermLimitQueryAndParams(charId, position, state)
+  local query = 'SELECT COUNT(*) as count FROM election_winners WHERE character_id = @charId AND position = @pos'
+  local queryParams = {
+    ['@charId'] = charId,
+    ['@pos'] = position
+  }
+
+  if Config.TermLimitScope and Config.TermLimitScope.ByState then
+    query = query .. ' AND state = @state'
+    queryParams['@state'] = state
+  end
+
+  if Config.TermLimitScope and Config.TermLimitScope.WindowYears and Config.TermLimitScope.WindowYears > 0 then
+    local years = tonumber(Config.TermLimitScope.WindowYears)
+    local cutoff = os.date('%Y-%m-%d %H:%M:%S', os.time() - (years * 365 * 24 * 60 * 60))
+    query = query .. ' AND election_date >= @cutoff'
+    queryParams['@cutoff'] = cutoff
+  end
+
+  return query, queryParams
+end
 
 
 
@@ -143,7 +179,6 @@ AddEventHandler('registerVoter', function(city, region, state)
 MySQL.Async.execute('INSERT INTO ballot_registration (voterID, registrationCity, registrationRegion, state) VALUES (@character_id,  @city, @region, @state)',
   {
     ['@character_id'] = charId,
-    ['@voter_name'] = playername,
     ['@city'] = city,
     ['@region'] = region,
     ['@state'] = state
@@ -168,7 +203,8 @@ AddEventHandler('addballotname', function(city,region,position, state)
   end
 
   if positionInfo and positionInfo.termlimit > 0 then
-    MySQL.query('SELECT COUNT(*) as count FROM election_winners WHERE character_id = @charId AND position = @pos', {['@charId'] = charId, ['@pos'] = position}, function(result)
+    local termLimitQuery, termLimitParams = getTermLimitQueryAndParams(charId, position, state)
+    MySQL.query(termLimitQuery, termLimitParams, function(result)
         local count = result[1].count
         if count >= positionInfo.termlimit then
             TriggerClientEvent("vorp:TipBottom", _source, (_L('term_limit_reached', positionInfo.termlimit, position)), 6000)
@@ -209,9 +245,9 @@ AddEventHandler('addballotname', function(city,region,position, state)
   end
 end)
 
-function isElectionOfficial(identifier)
+local function isElectionOfficial(identifier)
   for _, official in ipairs(Config.ElectionOfficials) do
-      if official[1] == identifier then
+      if official == identifier then
           return true
       end
   end
@@ -222,7 +258,7 @@ RegisterServerEvent('cleanupScript')
 AddEventHandler('cleanupScript', function(state)
   local _source = source
   local user = VorpCore.getUser(_source)
-  if user.getGroup() == 'admin' or isElectionOfficial(user.getJob()) then
+  if getUserGroup(user) == 'admin' or isElectionOfficial(getUserJob(user)) then
     MySQL.Async.execute('DELETE from Ballot WHERE state = @state', {['@state'] = state})
     MySQL.Async.execute('DELETE from Ballot_votes WHERE state = @state', {['@state'] = state})
     MySQL.Async.execute('DELETE from ballot_registration WHERE state = @state', {['@state'] = state})
@@ -311,7 +347,7 @@ AddEventHandler('addNewVote', function(city, region, position, jurisdiction, can
   end
   
       query = 'INSERT INTO ballot_votes (voterID, ballotID, office, jurisdiction, location, state) VALUES (@voterID, @ballotID, @position, @jurisdiction, @location, @state) '
-      queryParams = {['@voterID'] = charId, ['@ballotID'] =ballotid, ['@position'] = position, ['jurisdiction'] = jurisdiction,['location'] = location, ['@state'] = state }
+      queryParams = {['@voterID'] = charId, ['@ballotID'] =ballotid, ['@position'] = position, ['@jurisdiction'] = jurisdiction, ['@location'] = location, ['@state'] = state }
       MySQL.Async.execute(query, queryParams)
 
 
@@ -340,23 +376,14 @@ AddEventHandler('updateVote', function(city, region, position, jurisdiction, can
   end
   
       query = 'Update ballot_votes set ballotID = @ballotid where voterID= @voterID AND office= @position and location = @location and state = @state'
-      queryParams = {['@ballotid'] =ballotid, ['@voterID'] = charId, ['@position'] = position, ['location'] = location, ['@state'] = state }
+      queryParams = {['@ballotid'] =ballotid, ['@voterID'] = charId, ['@position'] = position, ['@location'] = location, ['@state'] = state }
       MySQL.Async.execute(query, queryParams)
 
       local title = _L('discord_changed_vote_title', playername)
       local description = _L('discord_changed_vote_desc', playername, position, location)
       SendToDiscordWebhook(title,description)
       
-end)
-
-function isElectionOfficial(identifier)
-  for _, official in ipairs(Config.ElectionOfficials) do
-      if official[1] == identifier then
-          return true
-      end
-  end
-  return false
-end
+    end)
 
 
 RegisterServerEvent('openelectionresultsmenu')
@@ -364,7 +391,7 @@ AddEventHandler('openelectionresultsmenu', function()
     local _source = source
     local user = VorpCore.getUser(_source)
     
-    if user.getGroup() == 'admin' or isElectionOfficial(user.getJob()) then
+  if getUserGroup(user) == 'admin' or isElectionOfficial(getUserJob(user)) then
         TriggerClientEvent("vorp:TipBottom", _source, (_L('welcome_election_official')), 4000)
         TriggerClientEvent("democracy:openElecResMenu", _source)
     else
@@ -445,14 +472,14 @@ end
 
 function ProcessStateElection(state)
     -- Check the last election cycle for this state
-    MySQL.single('SELECT * FROM election_cycles WHERE state = ? ORDER BY start_time DESC LIMIT 1', {state}, function(lastCycle)
+  MySQL.single('SELECT id, state, UNIX_TIMESTAMP(start_time) as start_unix FROM election_cycles WHERE state = ? ORDER BY start_time DESC LIMIT 1', {state}, function(lastCycle)
         if not lastCycle then
             -- No election has ever run for this state, so let's start one.
             StartNewElectionCycle(state)
         else
             -- An election cycle exists. Check if it's time to end it.
-            local cycleStartDate = lastCycle.start_time
-            local daysPassed = (os.time() - cycleStartDate) / (24 * 60 * 60)
+      local cycleStartUnix = tonumber(lastCycle.start_unix) or 0
+      local daysPassed = (os.time() - cycleStartUnix) / (24 * 60 * 60)
 
             if daysPassed >= Config.ElectionCycle.DurationDays then
                 -- End the current election and start a new one
@@ -518,7 +545,9 @@ function TallyAndStoreWinners(state)
             return 0
         end
 
-        if positionInfo.jurisdiction == "federal" then
+        local jurisdiction = string.lower(positionInfo.jurisdiction)
+
+        if jurisdiction == "federal" then
              query = 'SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position GROUP BY b.id ORDER BY votes DESC LIMIT 1'
              queryParams = { ['@position'] = positionInfo.name }
              
@@ -528,7 +557,7 @@ function TallyAndStoreWinners(state)
                     StoreWinner(winner[1], state)
                 end
             end)
-        elseif positionInfo.jurisdiction == "state" then
+        elseif jurisdiction == "state" then
             query = 'SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position and b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1'
             queryParams = { ['@position'] = positionInfo.name, ['@state'] = state }
 
@@ -538,7 +567,7 @@ function TallyAndStoreWinners(state)
                     StoreWinner(winner[1], state)
                 end
             end)
-        elseif positionInfo.jurisdiction == "local" then
+        elseif jurisdiction == "local" then
             -- For local, we need to determine the winner for each city
              local cities_query = 'SELECT DISTINCT city FROM ballot WHERE state = @state AND position = @position'
              MySQL.query(cities_query, {['@state'] = state, ['@position'] = positionInfo.name}, function(cities)
