@@ -87,6 +87,8 @@ local function cloneArray(input)
   return out
 end
 
+local getPositionJurisdiction
+
 local function normalizeSelectedPositions(selected)
   if type(selected) ~= 'table' then
     return getAllPositionNames()
@@ -183,6 +185,55 @@ local function parseScopeSelection(selection)
   }
 end
 
+local function getScopeStateFromFilter(scopeFilter)
+  if type(scopeFilter) ~= 'table' then
+    return nil
+  end
+
+  local scopeType = normalizeScopeValue(scopeFilter.type)
+  local firstValue = scopeFilter.values and scopeFilter.values[1]
+  if not firstValue then
+    return nil
+  end
+
+  if scopeType == 'state' then
+    return normalizeScopeValue(firstValue)
+  end
+
+  if scopeType == 'region' or scopeType == 'city' then
+    local _, state = tostring(firstValue):match('^(.-)|(.+)$')
+    if state and state ~= '' then
+      return normalizeScopeValue(state)
+    end
+  end
+
+  return nil
+end
+
+local function getSetupPositionsForScope(scopeFilter)
+  local scopeState = getScopeStateFromFilter(scopeFilter)
+  local positions = {}
+
+  for _, pos in ipairs(Config.Positions or {}) do
+    local include = true
+    if scopeState and scopeState ~= '' then
+      include = false
+      for _, stateName in ipairs(pos.states or {}) do
+        if normalizeScopeValue(stateName) == scopeState then
+          include = true
+          break
+        end
+      end
+    end
+
+    if include then
+      table.insert(positions, { name = pos.name, jurisdiction = pos.jurisdiction })
+    end
+  end
+
+  return positions
+end
+
 local function setElectionActive(active, selectedPositions, scopeFilter)
   ElectionRuntimeState.Active = active == true
   if ElectionRuntimeState.Active then
@@ -210,6 +261,305 @@ VORP.addNewCallBack('democracy:getElectionActive', function(source, cb)
       values = cloneArray(ElectionRuntimeState.ScopeFilter.values)
     }
   })
+end)
+
+VORP.addNewCallBack('democracy:getSetupPositions', function(source, cb, params)
+  if not hasElectionControlPermission(source) then
+    cb({ ok = false, positions = {} })
+    return
+  end
+
+  local selectedScope = params and params.scope or 'all'
+  local scopeFilter = parseScopeSelection(selectedScope)
+  local positions = getSetupPositionsForScope(scopeFilter)
+  cb({ ok = true, positions = positions })
+end)
+
+VORP.addNewCallBack('democracy:getVoteablePositions', function(source, cb, params)
+  if type(params) ~= 'table' then
+    cb({ ok = true, positions = {} })
+    return
+  end
+
+  local city = tostring(params.city or '')
+  local region = tostring(params.region or '')
+  local state = tostring(params.state or '')
+
+  local cityNorm = normalizeScopeValue(city)
+  local regionNorm = normalizeScopeValue(region)
+  local stateNorm = normalizeScopeValue(state)
+
+  MySQL.query('SELECT position, city, region, state FROM ballot WHERE state = @state', {
+    ['@state'] = state
+  }, function(rows)
+    local positions = {}
+
+    for _, pos in ipairs(Config.Positions or {}) do
+      if isPositionActive(pos.name) then
+        local allowedInState = false
+        for _, stateName in ipairs(pos.states or {}) do
+          if normalizeScopeValue(stateName) == stateNorm then
+            allowedInState = true
+            break
+          end
+        end
+
+        if allowedInState then
+          local jurisdiction = string.lower(pos.jurisdiction or 'local')
+          local hasCandidate = false
+
+          for _, row in ipairs(rows or {}) do
+            if row.position == pos.name then
+              local rowState = normalizeScopeValue(row.state)
+              local rowRegion = normalizeScopeValue(row.region)
+              local rowCity = normalizeScopeValue(row.city)
+
+              if jurisdiction == 'state' then
+                if rowState == stateNorm then
+                  hasCandidate = true
+                  break
+                end
+              elseif jurisdiction == 'county' then
+                if rowState == stateNorm and rowRegion == regionNorm then
+                  hasCandidate = true
+                  break
+                end
+              else
+                if rowState == stateNorm and rowCity == cityNorm then
+                  hasCandidate = true
+                  break
+                end
+              end
+            end
+          end
+
+          if hasCandidate then
+            table.insert(positions, { name = pos.name, jurisdiction = pos.jurisdiction })
+          end
+        end
+      end
+    end
+
+    cb({ ok = true, positions = positions })
+  end)
+end)
+
+local function resolveRegionForScopeCity(cityNorm, stateNorm)
+  for _, loc in ipairs(Config.VotingLocations or {}) do
+    local locCity = normalizeScopeValue(loc.city)
+    local locState = normalizeScopeValue(loc.state)
+    if locCity == cityNorm and (stateNorm == '' or locState == stateNorm) then
+      return normalizeScopeValue(loc.region)
+    end
+  end
+  return ''
+end
+
+local function rowMatchesElectionScope(scopeFilter, jurisdiction, rowState, rowRegion, rowCity)
+  local scopeType = normalizeScopeValue(scopeFilter and scopeFilter.type or 'all')
+  local firstValue = scopeFilter and scopeFilter.values and scopeFilter.values[1]
+
+  if scopeType == '' or scopeType == 'all' or not firstValue then
+    return true
+  end
+
+  if scopeType == 'state' then
+    return rowState == normalizeScopeValue(firstValue)
+  end
+
+  if scopeType == 'region' then
+    local regionRaw, stateRaw = tostring(firstValue):match('^(.-)|(.+)$')
+    local regionNorm = normalizeScopeValue(regionRaw or firstValue)
+    local stateNorm = normalizeScopeValue(stateRaw or '')
+
+    if jurisdiction == 'state' then
+      if stateNorm ~= '' then
+        return rowState == stateNorm
+      end
+      return true
+    end
+
+    if stateNorm ~= '' and rowState ~= stateNorm then
+      return false
+    end
+
+    return rowRegion == regionNorm
+  end
+
+  if scopeType == 'city' then
+    local cityRaw, stateRaw = tostring(firstValue):match('^(.-)|(.+)$')
+    local cityNorm = normalizeScopeValue(cityRaw or firstValue)
+    local stateNorm = normalizeScopeValue(stateRaw or '')
+
+    if stateNorm ~= '' and rowState ~= stateNorm then
+      return false
+    end
+
+    if jurisdiction == 'state' then
+      return true
+    end
+
+    if jurisdiction == 'county' then
+      local scopeRegion = resolveRegionForScopeCity(cityNorm, stateNorm)
+      if scopeRegion == '' then
+        return false
+      end
+      return rowRegion == scopeRegion
+    end
+
+    return rowCity == cityNorm
+  end
+
+  return true
+end
+
+VORP.addNewCallBack('democracy:getResultPositions', function(source, cb)
+  if not hasElectionControlPermission(source) then
+    cb({ ok = false, positions = {} })
+    return
+  end
+
+  if not ElectionRuntimeState.Active then
+    cb({ ok = true, positions = {} })
+    return
+  end
+
+  local scopeFilter = ElectionRuntimeState.ScopeFilter or { type = 'all', values = {} }
+
+  MySQL.query('SELECT position, city, region, state FROM ballot', {}, function(rows)
+    local positions = {}
+
+    for _, pos in ipairs(Config.Positions or {}) do
+      if isPositionActive(pos.name) then
+        local jurisdiction = string.lower(pos.jurisdiction or 'local')
+        local hasCandidate = false
+
+        for _, row in ipairs(rows or {}) do
+          if row.position == pos.name then
+            local rowState = normalizeScopeValue(row.state)
+            local rowRegion = normalizeScopeValue(row.region)
+            local rowCity = normalizeScopeValue(row.city)
+
+            local allowedInState = false
+            for _, stateName in ipairs(pos.states or {}) do
+              if normalizeScopeValue(stateName) == rowState then
+                allowedInState = true
+                break
+              end
+            end
+
+            if allowedInState and rowMatchesElectionScope(scopeFilter, jurisdiction, rowState, rowRegion, rowCity) then
+              hasCandidate = true
+              break
+            end
+          end
+        end
+
+        if hasCandidate then
+          table.insert(positions, { name = pos.name, jurisdiction = pos.jurisdiction })
+        end
+      end
+    end
+
+    cb({ ok = true, positions = positions })
+  end)
+end)
+
+VORP.addNewCallBack('democracy:getResultScopes', function(source, cb, params)
+  if not hasElectionControlPermission(source) then
+    cb({ ok = false, scopes = {}, jurisdiction = 'local' })
+    return
+  end
+
+  if not ElectionRuntimeState.Active then
+    cb({ ok = true, scopes = {}, jurisdiction = 'local' })
+    return
+  end
+
+  local position = params and params.position
+  if not position or position == '' then
+    cb({ ok = false, scopes = {}, jurisdiction = 'local' })
+    return
+  end
+
+  local jurisdiction = getPositionJurisdiction(position)
+  local scopeFilter = ElectionRuntimeState.ScopeFilter or { type = 'all', values = {} }
+  local seen = {}
+  local scopes = {}
+
+  local function trimScopeValue(value)
+    local text = tostring(value or '')
+    text = text:gsub('^%s+', ''):gsub('%s+$', '')
+    text = text:gsub('%s+', ' ')
+    return text
+  end
+
+  MySQL.query('SELECT city, region, state FROM ballot WHERE position = @position', {
+    ['@position'] = position
+  }, function(rows)
+    for _, row in ipairs(rows or {}) do
+      local rowStateNorm = normalizeScopeValue(row.state)
+      local rowRegionNorm = normalizeScopeValue(row.region)
+      local rowCityNorm = normalizeScopeValue(row.city)
+
+      local allowedInState = false
+      for _, pos in ipairs(Config.Positions or {}) do
+        if pos.name == position then
+          for _, stateName in ipairs(pos.states or {}) do
+            if normalizeScopeValue(stateName) == rowStateNorm then
+              allowedInState = true
+              break
+            end
+          end
+          break
+        end
+      end
+
+      if allowedInState and rowMatchesElectionScope(scopeFilter, jurisdiction, rowStateNorm, rowRegionNorm, rowCityNorm) then
+        local stateDisplay = trimScopeValue(row.state)
+        local regionDisplay = trimScopeValue(row.region)
+        local cityDisplay = trimScopeValue(row.city)
+
+        if jurisdiction == 'state' then
+          local key = string.format('state|%s', rowStateNorm)
+          if not seen[key] then
+            seen[key] = true
+            table.insert(scopes, {
+              label = stateDisplay,
+              value = stateDisplay,
+              state = stateDisplay
+            })
+          end
+        elseif jurisdiction == 'county' then
+          local key = string.format('region|%s|%s', rowRegionNorm, rowStateNorm)
+          if not seen[key] then
+            seen[key] = true
+            table.insert(scopes, {
+              label = string.format('%s (%s)', regionDisplay, stateDisplay),
+              value = regionDisplay,
+              state = stateDisplay
+            })
+          end
+        else
+          local key = string.format('city|%s|%s', rowCityNorm, rowStateNorm)
+          if not seen[key] then
+            seen[key] = true
+            table.insert(scopes, {
+              label = string.format('%s (%s)', cityDisplay, stateDisplay),
+              value = cityDisplay,
+              state = stateDisplay
+            })
+          end
+        end
+      end
+    end
+
+    table.sort(scopes, function(a, b)
+      return tostring(a.label) < tostring(b.label)
+    end)
+
+    cb({ ok = true, scopes = scopes, jurisdiction = jurisdiction })
+  end)
 end)
 
 RegisterServerEvent('democracy:applyElectionSetup')
@@ -977,7 +1327,7 @@ local function formatWinnerScope(winner)
   return winner.state
 end
 
-local function getPositionJurisdiction(position)
+getPositionJurisdiction = function(position)
   for _, pos in ipairs(Config.Positions or {}) do
     if pos.name == position then
       return string.lower(pos.jurisdiction or "local")

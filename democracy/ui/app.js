@@ -268,8 +268,18 @@ const setMode = async (mode) => {
 
   if (isAdmin) {
     configureAdminScopeFilter();
-    renderPositions();
+    await refreshAdminPositions();
     return;
+  }
+
+  if (isVote) {
+    const payload = await post('getVoteablePositions');
+    state.positions = payload?.positions || [];
+  }
+
+  if (isResults) {
+    const payload = await post('getResultPositions');
+    state.positions = payload?.positions || [];
   }
 
   renderPositions();
@@ -282,6 +292,21 @@ const setMode = async (mode) => {
 
 const renderPositions = () => {
   positionList.innerHTML = '';
+  if (!state.positions.length) {
+    const line = document.createElement('div');
+    if (state.mode === 'admin') {
+      line.textContent = state.labels.no_positions_scope || 'No offices available for this scope';
+    } else if (state.mode === 'vote') {
+      line.textContent = state.labels.no_positions_vote || 'No offices currently up for election here';
+    } else if (state.mode === 'results') {
+      line.textContent = state.labels.no_positions_results || 'No active election results available right now';
+    } else {
+      line.textContent = state.labels.select_position || 'Select Office';
+    }
+    positionList.appendChild(line);
+    return;
+  }
+
   for (const item of state.positions) {
     const btn = document.createElement('button');
     const adminActive = state.adminSelectedPositions.has(item.name);
@@ -311,6 +336,26 @@ const renderPositions = () => {
   if (state.mode === 'results' && !state.selectedPosition && state.positions.length > 0) {
     selectPosition(state.positions[0]);
   }
+};
+
+const refreshAdminPositions = async () => {
+  const payload = await post('getSetupPositions', {
+    scope: state.adminSelectedScope || 'all',
+  });
+
+  const positions = payload?.positions || [];
+  state.positions = positions;
+
+  const validPositionNames = new Set(positions.map((item) => item.name));
+  state.adminSelectedPositions = new Set(
+    Array.from(state.adminSelectedPositions).filter((name) => validPositionNames.has(name)),
+  );
+
+  if (state.selectedPosition && !validPositionNames.has(state.selectedPosition.name)) {
+    state.selectedPosition = null;
+  }
+
+  renderPositions();
 };
 
 const renderCandidates = () => {
@@ -435,6 +480,7 @@ modeResultsBtn.onclick = () => setMode('results');
 scopeSelect.onchange = async () => {
   if (state.mode === 'admin') {
     state.adminSelectedScope = scopeSelect.value || 'all';
+    await refreshAdminPositions();
     return;
   }
 

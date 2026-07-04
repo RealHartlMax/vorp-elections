@@ -577,7 +577,10 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
         results_for = _L('results_for_label', "%s"),
         votes_suffix = _L('nui_votes_suffix'),
         scope_federal = _L('nui_results_federal'),
-        no_candidates = _L('no_candidates_found')
+        no_candidates = _L('no_candidates_found'),
+        no_positions_scope = _L('nui_no_positions_scope'),
+        no_positions_vote = _L('nui_no_positions_vote'),
+        no_positions_results = _L('nui_no_positions_results')
     }
 
     SendNUIMessage({
@@ -666,8 +669,16 @@ RegisterNUICallback('getResultsScopes', function(data, cb)
         return
     end
 
-    local scopes, jurisdiction = BuildResultScopes(data.position)
-    cb({ ok = true, scopes = scopes, jurisdiction = jurisdiction })
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResultScopes", function(result)
+        local payload = result or {}
+        cb({
+            ok = payload.ok ~= false,
+            scopes = payload.scopes or {},
+            jurisdiction = payload.jurisdiction or GetPositionJurisdiction(data.position)
+        })
+    end, {
+        position = data.position
+    })
 end)
 
 RegisterNUICallback('getResultsData', function(data, cb)
@@ -693,6 +704,49 @@ RegisterNUICallback('getResultsData', function(data, cb)
         position = data.position,
         jurisdiction = data.jurisdiction,
         state = state
+    })
+end)
+
+RegisterNUICallback('getVoteablePositions', function(_, cb)
+    if not currentBoothContext then
+        cb({ ok = true, positions = {} })
+        return
+    end
+
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getVoteablePositions", function(result)
+        local payload = result or {}
+        cb({
+            ok = payload.ok ~= false,
+            positions = payload.positions or {}
+        })
+    end, {
+        city = currentBoothContext.city,
+        region = currentBoothContext.region,
+        state = currentBoothContext.state
+    })
+end)
+
+RegisterNUICallback('getResultPositions', function(_, cb)
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResultPositions", function(result)
+        local payload = result or {}
+        cb({
+            ok = payload.ok ~= false,
+            positions = payload.positions or {}
+        })
+    end)
+end)
+
+RegisterNUICallback('getSetupPositions', function(data, cb)
+    local selectedScope = (data and data.scope) or 'all'
+
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getSetupPositions", function(result)
+        local payload = result or {}
+        cb({
+            ok = payload.ok ~= false,
+            positions = payload.positions or {}
+        })
+    end, {
+        scope = selectedScope
     })
 end)
 

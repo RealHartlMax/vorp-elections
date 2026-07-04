@@ -6,6 +6,9 @@ rdr3_warning 'I acknowledge that this is a prerelease build of RedM, and I am aw
 
 shared_scripts {
 	'config.lua',
+	'config/system.lua',
+	'config/offices.lua',
+	'config/locations.lua',
     'lang.lua'
 }
 
