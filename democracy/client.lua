@@ -33,6 +33,9 @@ local currentOnBallot = false
 local electionActive = false
 local nextPromptUseAt = 0
 local activePositionLookup = {}
+local activeScopeLookup = {}
+local activeScopeFilter = { type = 'all', values = {} }
+local GetPositionJurisdiction
 
 local function IsPositionEnabled(positionName)
     if not electionActive then
@@ -48,6 +51,161 @@ local function IsPositionEnabled(positionName)
     end
 
     return activePositionLookup[positionName] == true
+end
+
+local function normalizeScopePart(value)
+    local text = tostring(value or "")
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    text = text:gsub("%s+", " ")
+    return string.lower(text)
+end
+
+local function makeScopeKey(scopeType, value, state)
+    local t = normalizeScopePart(scopeType)
+    if t == 'state' then
+        return string.format('state|%s', normalizeScopePart(state or value))
+    end
+    if t == 'county' or t == 'region' then
+        return string.format('region|%s', normalizeScopePart(value))
+    end
+    return string.format('city|%s|%s', normalizeScopePart(value), normalizeScopePart(state))
+end
+
+local function IsLocationEnabled(city, region, state)
+    if not electionActive then
+        return false
+    end
+
+    if next(activeScopeLookup) == nil then
+        return true
+    end
+
+    local stateKey = makeScopeKey('state', state, state)
+    local countyKey = makeScopeKey('region', region, state)
+    local cityKey = makeScopeKey('city', city, state)
+
+    return activeScopeLookup[stateKey] == true
+        or activeScopeLookup[countyKey] == true
+        or activeScopeLookup[cityKey] == true
+end
+
+local function parseScopeValue(scopeType, value)
+    local t = normalizeScopePart(scopeType)
+    local raw = tostring(value or '')
+    if t == 'state' then
+        return { state = normalizeScopePart(raw) }
+    end
+    if t == 'region' or t == 'county' then
+        local region, state = raw:match('^(.-)|(.+)$')
+        if region and state then
+            return { region = normalizeScopePart(region), state = normalizeScopePart(state) }
+        end
+        return { region = normalizeScopePart(raw) }
+    end
+    local city, state = raw:match('^(.-)|(.+)$')
+    if city and state then
+        return { city = normalizeScopePart(city), state = normalizeScopePart(state) }
+    end
+    return { city = normalizeScopePart(raw) }
+end
+
+local function resolveLocationRegion(city, state)
+    local cityNorm = normalizeScopePart(city)
+    local stateNorm = normalizeScopePart(state)
+    for _, loc in ipairs(Config.VotingLocations or {}) do
+        if normalizeScopePart(loc.city) == cityNorm and normalizeScopePart(loc.state) == stateNorm then
+            return normalizeScopePart(loc.region)
+        end
+    end
+    return ''
+end
+
+local function IsPositionAvailableAtLocation(positionName, city, region, state)
+    local jurisdiction = GetPositionJurisdiction(positionName)
+    local scopeType = normalizeScopePart(activeScopeFilter.type)
+    local firstValue = activeScopeFilter.values and activeScopeFilter.values[1]
+
+    if scopeType == '' or scopeType == 'all' or not firstValue then
+        return true
+    end
+
+    local locState = normalizeScopePart(state)
+    local locRegion = normalizeScopePart(region)
+    local locCity = normalizeScopePart(city)
+    local scope = parseScopeValue(scopeType, firstValue)
+
+    -- Higher offices (state jurisdiction) are voteable across the selected state.
+    if jurisdiction == 'state' then
+        if scope.state and scope.state ~= '' then
+            return locState == scope.state
+        end
+        if scope.region and scope.region ~= '' then
+            if scope.state and scope.state ~= '' and locState ~= scope.state then
+                return false
+            end
+            return true
+        end
+        if scope.city and scope.city ~= '' then
+            if scope.state and scope.state ~= '' then
+                return locState == scope.state
+            end
+            return true
+        end
+        return true
+    end
+
+    if scopeType == 'state' then
+        return locState == (scope.state or '')
+    end
+
+    if scopeType == 'region' or scopeType == 'county' then
+        if scope.state and scope.state ~= '' and locState ~= scope.state then
+            return false
+        end
+        return locRegion == (scope.region or '')
+    end
+
+    if scopeType == 'city' then
+        if scope.state and scope.state ~= '' and locState ~= scope.state then
+            return false
+        end
+
+        if jurisdiction == 'county' then
+            local scopeRegion = resolveLocationRegion(scope.city or '', scope.state or state)
+            if scopeRegion == '' then
+                return false
+            end
+            return locRegion == scopeRegion
+        end
+
+        return locCity == (scope.city or '')
+    end
+
+    return true
+end
+
+local function HasAnyActivePositionAtLocation(city, region, state)
+    for _, pos in ipairs(Config.Positions or {}) do
+        if IsPositionEnabled(pos.name) and IsPositionAvailableAtLocation(pos.name, city, region, state) then
+            return true
+        end
+    end
+    return false
+end
+
+local function GetPositionsForLocation(state, city, region)
+    local positions = {}
+    for _, v in pairs(Config.Positions) do
+        if IsPositionEnabled(v.name) and IsPositionAvailableAtLocation(v.name, city, region, state) then
+            for _, s in ipairs(v.states) do
+                if s == state then
+                    table.insert(positions, { name = v.name, jurisdiction = v.jurisdiction })
+                    break
+                end
+            end
+        end
+    end
+    return positions
 end
 
 local function AddBlipForCoordNative(blipType, x, y, z)
@@ -128,7 +286,7 @@ local function SetPromptVisibility(enabled)
     end
 end
 
-local function GetPositionJurisdiction(positionName)
+GetPositionJurisdiction = function(positionName)
     for _, v in pairs(Config.Positions) do
         if v.name == positionName then
             return string.lower(v.jurisdiction)
@@ -163,35 +321,199 @@ local function GetAllPositions(includeInactive)
 end
 
 local function BuildResultScopes(position)
+    local function normalizeScopeKey(value)
+        local text = tostring(value or "")
+        text = text:gsub("^%s+", ""):gsub("%s+$", "")
+        text = text:gsub("%s+", " ")
+        return string.lower(text)
+    end
+
+    local function cleanScopeValue(value)
+        local text = tostring(value or "")
+        text = text:gsub("^%s+", ""):gsub("%s+$", "")
+        text = text:gsub("%s+", " ")
+        return text
+    end
+
     local jurisdiction = GetPositionJurisdiction(position)
     local scopes = {}
     local seen = {}
 
-    if jurisdiction == "federal" then
-        table.insert(scopes, { label = _L('nui_results_federal'), value = "federal", state = nil })
-        return scopes, jurisdiction
-    end
-
     for _, v in pairs(Config.VotingLocations) do
+        local city = cleanScopeValue(v.city)
+        local region = cleanScopeValue(v.region)
+        local state = cleanScopeValue(v.state)
+
         if jurisdiction == "state" then
-            if not seen[v.state] then
-                seen[v.state] = true
-                table.insert(scopes, { label = v.state, value = v.state, state = v.state })
+            local key = normalizeScopeKey(state)
+            if not seen[key] then
+                seen[key] = true
+                table.insert(scopes, { label = state, value = state, state = state })
             end
-        else
-            local key = v.city
+        elseif jurisdiction == "county" then
+            local key = string.format('%s|%s', normalizeScopeKey(region), normalizeScopeKey(state))
             if not seen[key] then
                 seen[key] = true
                 table.insert(scopes, {
-                    label = string.format("%s (%s)", v.city, v.state),
-                    value = v.city,
-                    state = v.state
+                    label = string.format('%s (%s)', region, state),
+                    value = region,
+                    state = state
+                })
+            end
+        else
+            local key = string.format('%s|%s', normalizeScopeKey(city), normalizeScopeKey(state))
+            if not seen[key] then
+                seen[key] = true
+                table.insert(scopes, {
+                    label = string.format("%s (%s)", city, state),
+                    value = city,
+                    state = state
                 })
             end
         end
     end
 
+    table.sort(scopes, function(a, b)
+        return tostring(a.label) < tostring(b.label)
+    end)
+
     return scopes, jurisdiction
+end
+
+local function BuildAdminScopeOptions()
+    local options = {
+        { value = 'all', label = _L('nui_admin_scope_all') }
+    }
+
+    local statesSeen = {}
+    local regionsSeen = {}
+    local citiesSeen = {}
+
+    for _, v in ipairs(Config.VotingLocations or {}) do
+        local city = tostring(v.city or '')
+        local region = tostring(v.region or '')
+        local state = tostring(v.state or '')
+
+        local stateKey = normalizeScopePart(state)
+        if stateKey ~= '' and not statesSeen[stateKey] then
+            statesSeen[stateKey] = true
+            table.insert(options, { value = string.format('state:%s', state), label = string.format('%s: %s', _L('nui_scope_state'), state) })
+        end
+
+        local regionKey = string.format('%s|%s', normalizeScopePart(region), normalizeScopePart(state))
+        if regionKey ~= '' and not regionsSeen[regionKey] then
+            regionsSeen[regionKey] = true
+            table.insert(options, { value = string.format('region:%s|%s', region, state), label = string.format('%s: %s (%s)', _L('nui_scope_region'), region, state) })
+        end
+
+        local cityKey = string.format('%s|%s', normalizeScopePart(city), normalizeScopePart(state))
+        if normalizeScopePart(city) ~= '' and not citiesSeen[cityKey] then
+            citiesSeen[cityKey] = true
+            table.insert(options, { value = string.format('city:%s|%s', city, state), label = string.format('%s: %s (%s)', _L('nui_scope_city'), city, state) })
+        end
+    end
+
+    table.sort(options, function(a, b)
+        if a.value == 'all' then return true end
+        if b.value == 'all' then return false end
+        return tostring(a.label) < tostring(b.label)
+    end)
+
+    return options
+end
+
+local function ResolveScopeDisplay(stateNorm, regionNorm, cityNorm)
+    local bestState
+    local bestRegion
+    local bestCity
+
+    for _, location in ipairs(Config.VotingLocations or {}) do
+        local locStateNorm = normalizeScopePart(location.state)
+        local locRegionNorm = normalizeScopePart(location.region)
+        local locCityNorm = normalizeScopePart(location.city)
+
+        if stateNorm ~= '' and locStateNorm == stateNorm and not bestState then
+            bestState = tostring(location.state)
+        end
+        if regionNorm ~= '' and locRegionNorm == regionNorm then
+            if stateNorm == '' or locStateNorm == stateNorm then
+                if not bestRegion then
+                    bestRegion = tostring(location.region)
+                end
+            end
+        end
+        if cityNorm ~= '' and locCityNorm == cityNorm then
+            if stateNorm == '' or locStateNorm == stateNorm then
+                if not bestCity then
+                    bestCity = tostring(location.city)
+                end
+            end
+        end
+    end
+
+    return bestState, bestRegion, bestCity
+end
+
+local function BuildActiveScopeInfo()
+    local scopeType = normalizeScopePart(activeScopeFilter.type)
+    local value = activeScopeFilter.values and activeScopeFilter.values[1]
+
+    if scopeType == '' or scopeType == 'all' or not value then
+        return string.format('%s: %s', _L('nui_active_scope_prefix'), _L('nui_scope_all_label'))
+    end
+
+    if scopeType == 'state' then
+        local stateNorm = normalizeScopePart(value)
+        local displayState = ResolveScopeDisplay(stateNorm, '', '')
+        return string.format('%s: %s %s', _L('nui_active_scope_prefix'), _L('nui_scope_state'), displayState or tostring(value))
+    end
+
+    if scopeType == 'region' or scopeType == 'county' then
+        local regionRaw, stateRaw = tostring(value):match('^(.-)|(.+)$')
+        local regionNorm = normalizeScopePart(regionRaw or value)
+        local stateNorm = normalizeScopePart(stateRaw or '')
+        local displayState, displayRegion = ResolveScopeDisplay(stateNorm, regionNorm, '')
+        if displayState and displayState ~= '' then
+            return string.format('%s: %s %s (%s)', _L('nui_active_scope_prefix'), _L('nui_scope_region'), displayRegion or tostring(regionRaw or value), displayState)
+        end
+        return string.format('%s: %s %s', _L('nui_active_scope_prefix'), _L('nui_scope_region'), displayRegion or tostring(regionRaw or value))
+    end
+
+    if scopeType == 'city' then
+        local cityRaw, stateRaw = tostring(value):match('^(.-)|(.+)$')
+        local cityNorm = normalizeScopePart(cityRaw or value)
+        local stateNorm = normalizeScopePart(stateRaw or '')
+        local displayState, _, displayCity = ResolveScopeDisplay(stateNorm, '', cityNorm)
+        if displayState and displayState ~= '' then
+            return string.format('%s: %s %s (%s)', _L('nui_active_scope_prefix'), _L('nui_scope_city'), displayCity or tostring(cityRaw or value), displayState)
+        end
+        return string.format('%s: %s %s', _L('nui_active_scope_prefix'), _L('nui_scope_city'), displayCity or tostring(cityRaw or value))
+    end
+
+    return string.format('%s: %s', _L('nui_active_scope_prefix'), _L('nui_scope_all_label'))
+end
+
+local function ScopeFilterToSelection(scopeFilter)
+    if type(scopeFilter) ~= 'table' then
+        return 'all'
+    end
+
+    local scopeType = normalizeScopePart(scopeFilter.type)
+    local firstValue = scopeFilter.values and scopeFilter.values[1]
+    if not firstValue then
+        return 'all'
+    end
+
+    if scopeType == 'state' then
+        return string.format('state:%s', firstValue)
+    end
+    if scopeType == 'region' or scopeType == 'county' then
+        return string.format('region:%s', firstValue)
+    end
+    if scopeType == 'city' then
+        return string.format('city:%s', firstValue)
+    end
+    return 'all'
 end
 
 local function SetNuiOpenState(isOpen)
@@ -203,7 +525,7 @@ local function SetNuiOpenState(isOpen)
     end
 end
 
-local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFirst, customPositions, selectedPositions)
+local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFirst, customPositions, selectedPositions, canPublishResults, adminScopeOptions, selectedAdminScope)
     if mode == "results" or mode == "admin" then
         currentBoothContext = nil
     else
@@ -218,7 +540,7 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
     local subtitleCity = city or "-"
     local subtitleRegion = region or "-"
     local subtitleState = state or "-"
-    local positions = customPositions or (mode == "results" and GetAllPositions(true) or GetPositionsForState(state))
+    local positions = customPositions or (mode == "results" and GetAllPositions(true) or GetPositionsForLocation(state, city, region))
 
     local labels = {
         title = _L('nui_title'),
@@ -231,10 +553,24 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
         select_position = _L('nui_select_position'),
         select_candidate = _L('nui_select_candidate'),
         select_scope = _L('nui_select_scope'),
+        select_scope_city = _L('nui_select_scope_city'),
+        select_scope_county = _L('nui_select_scope_county'),
+        select_scope_state = _L('nui_select_scope_state'),
+        jurisdiction_city = _L('nui_jurisdiction_city'),
+        jurisdiction_county = _L('nui_jurisdiction_county'),
+        jurisdiction_state = _L('nui_jurisdiction_state'),
         submit_vote = _L('nui_submit_vote'),
         submit_run = _L('nui_submit_run'),
         submit_admin = _L('nui_submit_admin'),
+        publish_results = _L('nui_publish_results'),
+        publish_confirm_message = _L('nui_publish_confirm_message'),
+        publish_confirm_yes = _L('nui_publish_confirm_yes'),
+        publish_confirm_no = _L('nui_publish_confirm_no'),
         admin_select_required = _L('nui_admin_select_required'),
+        admin_select_scope = _L('nui_admin_select_scope'),
+        admin_scope_type = _L('nui_admin_scope_type'),
+        admin_scope_all = _L('nui_admin_scope_all'),
+        admin_scope_select_required = _L('nui_admin_scope_select_required'),
         register_prompt = _L('register_to_vote_prompt', subtitleCity),
         register_now = _L('nui_register_now'),
         results_empty = _L('nui_results_empty'),
@@ -256,7 +592,11 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
         subtitleState = subtitleState,
         onBallot = currentOnBallot,
         autoSelectFirst = autoSelectFirst == true,
+        canPublishResults = canPublishResults == true,
+        activeScopeInfo = BuildActiveScopeInfo(),
         selectedPositions = selectedPositions or {},
+        adminScopeOptions = adminScopeOptions or {},
+        selectedAdminScope = selectedAdminScope or 'all',
         positions = positions,
         labels = labels
     })
@@ -336,7 +676,7 @@ RegisterNUICallback('getResultsData', function(data, cb)
         return
     end
 
-    local location = data.location or "federal"
+    local location = data.location or ""
     local state = data.state
 
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResults", function(result)
@@ -402,13 +742,39 @@ local function RemoveVotingBlips()
     votingBlips = {}
 end
 
-local function ApplyElectionState(isActive, activePositions)
+local function ApplyElectionState(isActive, activePositions, scopeFilter)
     electionActive = isActive == true
     activePositionLookup = {}
+    activeScopeLookup = {}
+    activeScopeFilter = { type = 'all', values = {} }
 
     if type(activePositions) == 'table' then
         for _, name in ipairs(activePositions) do
             activePositionLookup[name] = true
+        end
+    end
+
+    if type(scopeFilter) == 'table' and type(scopeFilter.values) == 'table' then
+        local scopeType = normalizeScopePart(scopeFilter.type)
+        activeScopeFilter.type = scopeType ~= '' and scopeType or 'all'
+        activeScopeFilter.values = {}
+        for _, value in ipairs(scopeFilter.values) do
+            table.insert(activeScopeFilter.values, tostring(value))
+            if scopeType == 'state' then
+                activeScopeLookup[makeScopeKey('state', value, value)] = true
+            elseif scopeType == 'region' or scopeType == 'county' then
+                local region, regionState = tostring(value):match('^(.-)|(.+)$')
+                if region and regionState then
+                    activeScopeLookup[makeScopeKey('region', region, regionState)] = true
+                else
+                    activeScopeLookup[makeScopeKey('region', value, nil)] = true
+                end
+            elseif scopeType == 'city' then
+                local city, state = tostring(value):match('^(.-)|(.+)$')
+                if city and state then
+                    activeScopeLookup[makeScopeKey('city', city, state)] = true
+                end
+            end
         end
     end
 
@@ -426,8 +792,8 @@ local function ApplyElectionState(isActive, activePositions)
 end
 
 RegisterNetEvent('democracy:setElectionActive')
-AddEventHandler('democracy:setElectionActive', function(isActive, activePositions)
-    ApplyElectionState(isActive, activePositions)
+AddEventHandler('democracy:setElectionActive', function(isActive, activePositions, scopeFilter)
+    ApplyElectionState(isActive, activePositions, scopeFilter)
 end)
 
 local function SetupVotePrompt()
@@ -465,18 +831,20 @@ Citizen.CreateThread(function()
     SetupVotePrompt()
     SetNuiFocus(false, false)
     SendNUIMessage({ action = "close" })
-    ApplyElectionState(Config.ElectionBoothsActiveOnStart == true, nil)
+    ApplyElectionState(Config.ElectionBoothsActiveOnStart == true, nil, nil)
 
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getElectionActive", function(stateData)
         local active = stateData
         local positions = nil
+        local scopes = nil
 
         if type(stateData) == 'table' then
             active = stateData.active
             positions = stateData.positions
+            scopes = stateData.scope
         end
 
-        ApplyElectionState(active, positions)
+        ApplyElectionState(active, positions, scopes)
     end)
 
     while true do
@@ -494,7 +862,7 @@ Citizen.CreateThread(function()
 
         for _, v in pairs(Config.VotingLocations) do
             local locationCanVote = v.canVote ~= false
-            if locationCanVote and ((not requiresBlip) or v.blip) then
+            if locationCanVote and IsLocationEnabled(v.city, v.region, v.state) and HasAnyActivePositionAtLocation(v.city, v.region, v.state) and ((not requiresBlip) or v.blip) then
                 local boothCoords = vector3(v.coords.x, v.coords.y, v.coords.z)
                 local distance = #(coords - boothCoords)
 
@@ -628,15 +996,22 @@ RegisterNUICallback('applyElectionSetup', function(data, cb)
         return
     end
 
-    TriggerServerEvent('democracy:applyElectionSetup', data.positions)
+    TriggerServerEvent('democracy:applyElectionSetup', data.positions, data.scope)
+    SetNuiOpenState(false)
+    currentBoothContext = nil
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('publishResults', function(_, cb)
+    TriggerServerEvent('democracy:publishResults')
     SetNuiOpenState(false)
     currentBoothContext = nil
     cb({ ok = true })
 end)
 
 RegisterNetEvent('democracy:openElectionSetup')
-AddEventHandler('democracy:openElectionSetup', function(positions, selectedPositions)
-    OpenElectionNui("admin", nil, nil, nil, false, false, positions or {}, selectedPositions or {})
+AddEventHandler('democracy:openElectionSetup', function(positions, selectedPositions, scopeFilter)
+    OpenElectionNui("admin", nil, nil, nil, false, false, positions or {}, selectedPositions or {}, false, BuildAdminScopeOptions(), ScopeFilterToSelection(scopeFilter))
 end)
 
 function OpenStartMenu(registered, city, region, onBallot, state)
@@ -959,23 +1334,10 @@ AddEventHandler('democracy:stoprunning', function()
         
     end)
 end)
-RegisterCommand("electionresults", function()
-        TriggerEvent("vorp:ExecuteServerCallBack", "democracy:isAdmin", function(cb)
-            local results=cb
-            print(results)
-            if results then
-                TriggerServerEvent("openelectionresultsmenu")
-            else
-                TriggerEvent("vorp:TipBottom", (_L('no_election_officials')), 4000) 
-            end  
-    end)
-  
-end, false)
-
 RegisterNetEvent('democracy:openElecResMenu')
 AddEventHandler('democracy:openElecResMenu', function()
     if Config.UseNUI ~= false then
-        OpenElectionNui("results", nil, nil, nil, false, false)
+        OpenElectionNui("results", nil, nil, nil, false, false, nil, nil, true)
         return
     end
 
@@ -1043,14 +1405,16 @@ function RaceSelectedResults(position)
             valueToAdd = Config.VotingLocations[k].city
             labelToAdd = Config.VotingLocations[k].city
             descToAdd = Config.VotingLocations[k].city
+        elseif jurisdiction == "county" then
+            valueToAdd = Config.VotingLocations[k].region
+            labelToAdd = string.format('%s (%s)', Config.VotingLocations[k].region, Config.VotingLocations[k].state)
+            descToAdd = Config.VotingLocations[k].region
+            stateToAdd = Config.VotingLocations[k].state
         elseif jurisdiction == "state" then
             valueToAdd = Config.VotingLocations[k].state
             labelToAdd = Config.VotingLocations[k].state
             descToAdd = Config.VotingLocations[k].state
             stateToAdd = Config.VotingLocations[k].state
-        elseif jurisdiction == "federal" then
-            showResults(position, "federal", "federal", nil)
-            break
         end
     
         -- Check if the valueToAdd already exists in menuElements
@@ -1150,11 +1514,7 @@ showResults = function(position, location, jurisdiction, state)
             },
             function(data, menu)
                 if data.current.value == "back" then
-                    if jurisdiction ~="federal" then
-                        RaceSelectedResults(position)
-                    else 
-                        TriggerEvent('democracy:openElecResMenu')
-                    end
+                    RaceSelectedResults(position)
       
                 elseif data.current.value == "exit_menu" then
                     

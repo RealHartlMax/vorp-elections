@@ -25,6 +25,8 @@
 
       <div id="statusBanner" class="status-banner hidden"></div>
 
+      <div id="activeScopeInfo" class="scope-info hidden"></div>
+
       <div id="scopeRow" class="scope-row hidden">
         <label id="scopeLabel" for="scopeSelect">Select Scope</label>
         <select id="scopeSelect"></select>
@@ -44,6 +46,13 @@
 
       <div class="actions">
         <button id="submitBtn" class="primary">Cast Vote</button>
+        <button id="publishResultsBtn" class="ghost hidden">Publish Results</button>
+      </div>
+
+      <div id="publishConfirmRow" class="actions hidden">
+        <span id="publishConfirmText" class="confirm-text">Publish results now?</span>
+        <button id="publishConfirmYes" class="primary">Yes</button>
+        <button id="publishConfirmNo" class="ghost">No</button>
       </div>
 
       <div id="registerActions" class="actions hidden">

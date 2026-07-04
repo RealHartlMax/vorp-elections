@@ -5,7 +5,10 @@ Config.Lang = 'de-DE'
 Config.DevDebug = true
 
 Config.Webhooks={
-    URL ='',
+  URL ='', -- Primary/default webhook URL.
+  CandidateURL = '', -- Optional: candidature posts only. Falls back to URL if empty.
+  ResultsURL = '', -- Optional: result/finalization posts only. Falls back to URL if empty.
+  ActivityURL = '', -- Optional: vote activity posts only. Falls back to URL if empty.
     Color = '16711680',
     WebhookName = 'Election Bot',
     WebhookLogo = ''
@@ -29,36 +32,31 @@ Config.TermLimitScope = {
     WindowYears = 30
 }
 
---Position name and the term in weeks
---jurisdiction can be Federal, Regional or Local, termlimit not yet functional
+-- Position hierarchy for this project:
+-- Local (city) -> County (region) -> State
+-- Federal level intentionally omitted.
 Config.Positions ={
-   -- USA federal offices (1870-1899 flavor)
-   {name = 'President (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'Secretary of War (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'Chief Justice (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'Senator East (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'Senator West (USA)', jurisdiction='Federal', term = 8, termlimit=2, states = {'USA'}},
-
-   -- Mexico federal offices (1870-1899 flavor)
-   {name = 'Presidente (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
-   {name = 'Ministro de Guerra (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
-   {name = 'Presidente de la Suprema Corte (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
-   {name = 'Diputado del Norte (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
-   {name = 'Diputado del Sur (Mexico)', jurisdiction='Federal', term = 8, termlimit=2, states = {'Mexico'}},
-
-   -- USA state offices
-   {name = 'Governor (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'State Marshal (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'Surgeon General (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+  -- USA state offices
+  {name = 'State Governor (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+  {name = 'State Marshal (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
+  {name = 'State Surgeon General (USA)', jurisdiction='State', term = 8, termlimit=2, states = {'USA'}},
 
    -- Mexico state offices
-   {name = 'Gobernador (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
-   {name = 'Jefe Rural (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
-   {name = 'Medico Jefe (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+  {name = 'State Gobernador (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+  {name = 'State Jefe Rural (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+  {name = 'State Medico Jefe (Mexico)', jurisdiction='State', term = 8, termlimit=2, states = {'Mexico'}},
+
+  -- USA county (region) offices
+  {name = 'County Sheriff (USA)', jurisdiction='County', term = 8, termlimit=2, states = {'USA'}},
+  {name = 'County Judge (USA)', jurisdiction='County', term = 8, termlimit=2, states = {'USA'}},
+
+  -- Mexico county (region) offices
+  {name = 'County Jefe de Condado (Mexico)', jurisdiction='County', term = 8, termlimit=2, states = {'Mexico'}},
+  {name = 'County Juez de Condado (Mexico)', jurisdiction='County', term = 8, termlimit=2, states = {'Mexico'}},
 
    -- Local offices
-   {name = 'Mayor (USA)', jurisdiction='Local', term = 8, termlimit=2, states = {'USA'}},
-   {name = 'Alcalde (Mexico)', jurisdiction='Local', term = 8, termlimit=2, states = {'Mexico'}},
+   {name = 'City Mayor (USA)', jurisdiction='Local', term = 8, termlimit=2, states = {'USA'}},
+   {name = 'City Alcalde (Mexico)', jurisdiction='Local', term = 8, termlimit=2, states = {'Mexico'}},
 }
 
 Config.ElectionCycle = {
@@ -74,24 +72,18 @@ Config.WinnerJobAssignment = {
   AssignOfflineMultiJob = true, -- Writes won office into characters.multijobs for offline winners.
   DefaultGrade = 0,
   PositionToJob = {
-    ['President (USA)'] = 'president_usa',
-    ['Secretary of War (USA)'] = 'secwar_usa',
-    ['Chief Justice (USA)'] = 'chiefjustice_usa',
-    ['Senator East (USA)'] = 'senator_east_usa',
-    ['Senator West (USA)'] = 'senator_west_usa',
-    ['Presidente (Mexico)'] = 'presidente_mexico',
-    ['Ministro de Guerra (Mexico)'] = 'minguerra_mexico',
-    ['Presidente de la Suprema Corte (Mexico)'] = 'supremacorte_mexico',
-    ['Diputado del Norte (Mexico)'] = 'dip_norte_mexico',
-    ['Diputado del Sur (Mexico)'] = 'dip_sur_mexico',
-    ['Governor (USA)'] = 'governor_usa',
+    ['State Governor (USA)'] = 'governor_usa',
     ['State Marshal (USA)'] = 'marshal_usa',
-    ['Surgeon General (USA)'] = 'surgeon_usa',
-    ['Gobernador (Mexico)'] = 'gobernador_mexico',
-    ['Jefe Rural (Mexico)'] = 'jeferural_mexico',
-    ['Medico Jefe (Mexico)'] = 'medicojefe_mexico',
-    ['Mayor (USA)'] = 'mayor_usa',
-    ['Alcalde (Mexico)'] = 'alcalde_mexico'
+    ['State Surgeon General (USA)'] = 'surgeon_usa',
+    ['State Gobernador (Mexico)'] = 'gobernador_mexico',
+    ['State Jefe Rural (Mexico)'] = 'jeferural_mexico',
+    ['State Medico Jefe (Mexico)'] = 'medicojefe_mexico',
+    ['County Sheriff (USA)'] = 'county_sheriff_usa',
+    ['County Judge (USA)'] = 'county_judge_usa',
+    ['County Jefe de Condado (Mexico)'] = 'jefe_condado_mexico',
+    ['County Juez de Condado (Mexico)'] = 'juez_condado_mexico',
+    ['City Mayor (USA)'] = 'mayor_usa',
+    ['City Alcalde (Mexico)'] = 'alcalde_mexico'
   }
 }
 

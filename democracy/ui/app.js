@@ -8,6 +8,7 @@ const modeResultsBtn = document.getElementById('modeResults');
 const scopeRow = document.getElementById('scopeRow');
 const scopeLabel = document.getElementById('scopeLabel');
 const scopeSelect = document.getElementById('scopeSelect');
+const activeScopeInfoEl = document.getElementById('activeScopeInfo');
 const statusBanner = document.getElementById('statusBanner');
 const positionLabel = document.getElementById('positionLabel');
 const candidateLabel = document.getElementById('candidateLabel');
@@ -15,6 +16,11 @@ const positionList = document.getElementById('positionList');
 const candidateCard = document.getElementById('candidateCard');
 const candidateList = document.getElementById('candidateList');
 const submitBtn = document.getElementById('submitBtn');
+const publishResultsBtn = document.getElementById('publishResultsBtn');
+const publishConfirmRow = document.getElementById('publishConfirmRow');
+const publishConfirmText = document.getElementById('publishConfirmText');
+const publishConfirmYes = document.getElementById('publishConfirmYes');
+const publishConfirmNo = document.getElementById('publishConfirmNo');
 const registerActions = document.getElementById('registerActions');
 const registerBtn = document.getElementById('registerBtn');
 
@@ -41,6 +47,7 @@ let state = {
   region: '',
   gameState: '',
   labels: {},
+  activeScopeInfo: '',
   positions: [],
   selectedPosition: null,
   selectedCandidate: null,
@@ -50,6 +57,29 @@ let state = {
   currentJurisdiction: null,
   autoSelectFirst: false,
   adminSelectedPositions: new Set(),
+  adminScopeOptions: [],
+  adminSelectedScope: 'all',
+  publishConfirmOpen: false,
+  canPublishResults: false,
+};
+
+const setPublishConfirm = (isOpen) => {
+  state.publishConfirmOpen = isOpen;
+  publishConfirmRow.classList.toggle('hidden', !isOpen);
+};
+
+const getJurisdictionLabel = (jurisdiction) => {
+  const value = String(jurisdiction || '').toLowerCase();
+  if (value === 'local' || value === 'city') {
+    return state.labels.jurisdiction_city || 'City';
+  }
+  if (value === 'county') {
+    return state.labels.jurisdiction_county || 'County';
+  }
+  if (value === 'state') {
+    return state.labels.jurisdiction_state || 'State';
+  }
+  return jurisdiction || '';
 };
 
 const showStatus = (message) => {
@@ -61,6 +91,14 @@ const showStatus = (message) => {
 
   statusBanner.textContent = message;
   statusBanner.classList.remove('hidden');
+};
+
+const renderActiveScopeInfo = (mode) => {
+  const isAdmin = mode === 'admin';
+  const text = String(state.activeScopeInfo || '').trim();
+  const show = !isAdmin && text.length > 0;
+  activeScopeInfoEl.classList.toggle('hidden', !show);
+  activeScopeInfoEl.textContent = show ? text : '';
 };
 
 const renderResultsRows = (rows = []) => {
@@ -78,6 +116,24 @@ const renderResultsRows = (rows = []) => {
     line.textContent = `${row.name} - ${row.votes} ${state.labels.votes_suffix || 'votes'}`;
     candidateList.appendChild(line);
   }
+};
+
+const configureAdminScopeFilter = () => {
+  scopeLabel.textContent = state.labels.admin_scope_type || state.labels.select_scope || 'Select Scope';
+  scopeSelect.innerHTML = '';
+
+  const options = Array.isArray(state.adminScopeOptions) && state.adminScopeOptions.length
+    ? state.adminScopeOptions
+    : [{ value: 'all', label: state.labels.admin_scope_all || 'All' }];
+
+  for (const optionData of options) {
+    const option = document.createElement('option');
+    option.value = optionData.value;
+    option.textContent = optionData.label;
+    scopeSelect.appendChild(option);
+  }
+  scopeSelect.value = state.adminSelectedScope || 'all';
+  state.adminSelectedScope = scopeSelect.value || 'all';
 };
 
 const loadResultsForScope = async (scopeObj) => {
@@ -99,6 +155,14 @@ const loadResultScopes = async (position) => {
   const payload = await post('getResultsScopes', { position: position.name });
   state.currentJurisdiction = payload?.jurisdiction || 'local';
   state.resultScopes = payload?.scopes || [];
+
+  if (state.currentJurisdiction === 'state') {
+    scopeLabel.textContent = state.labels.select_scope_state || state.labels.select_scope || 'Select Scope';
+  } else if (state.currentJurisdiction === 'county') {
+    scopeLabel.textContent = state.labels.select_scope_county || state.labels.select_scope || 'Select Scope';
+  } else {
+    scopeLabel.textContent = state.labels.select_scope_city || state.labels.select_scope || 'Select Scope';
+  }
 
   scopeSelect.innerHTML = '';
   for (const scopeObj of state.resultScopes) {
@@ -159,6 +223,11 @@ const setMode = async (mode) => {
   const isRegister = mode === 'register';
   const isResults = mode === 'results';
   const isAdmin = mode === 'admin';
+  const showPublish = isAdmin || (isResults && state.canPublishResults);
+
+  renderActiveScopeInfo(mode);
+
+  setPublishConfirm(false);
 
   modeVoteBtn.classList.toggle('active', isVote);
   modeRunBtn.classList.toggle('active', isRun);
@@ -179,12 +248,14 @@ const setMode = async (mode) => {
     ? state.labels.submit_vote
     : (isAdmin ? (state.labels.submit_admin || 'Start Election') : state.labels.submit_run);
   submitBtn.classList.toggle('hidden', isRegister || isResults ? true : false);
+  publishResultsBtn.classList.toggle('hidden', !showPublish);
+  publishResultsBtn.textContent = state.labels.publish_results || 'Publish Results';
   registerActions.classList.toggle('hidden', !isRegister);
-  scopeRow.classList.toggle('hidden', !isResults);
+  scopeRow.classList.toggle('hidden', !(isResults || isAdmin));
 
-  candidateLabel.textContent = isResults
-    ? (state.labels.results || 'Results')
-    : (state.labels.select_candidate || 'Select Candidate');
+  candidateLabel.textContent = isAdmin
+    ? (state.labels.admin_select_scope || state.labels.select_scope || 'Select Scope')
+    : (isResults ? (state.labels.results || 'Results') : (state.labels.select_candidate || 'Select Candidate'));
 
   if (isRegister) {
     positionList.innerHTML = '';
@@ -196,8 +267,9 @@ const setMode = async (mode) => {
   }
 
   if (isAdmin) {
-    candidateList.innerHTML = '';
-    return renderPositions();
+    configureAdminScopeFilter();
+    renderPositions();
+    return;
   }
 
   renderPositions();
@@ -214,7 +286,7 @@ const renderPositions = () => {
     const btn = document.createElement('button');
     const adminActive = state.adminSelectedPositions.has(item.name);
     btn.className = `item ${(state.selectedPosition?.name === item.name || adminActive) ? 'active' : ''}`;
-    btn.textContent = `${item.name} (${item.jurisdiction})`;
+    btn.textContent = `${item.name} (${getJurisdictionLabel(item.jurisdiction)})`;
     btn.onclick = async () => {
       if (state.mode === 'admin') {
         if (state.adminSelectedPositions.has(item.name)) {
@@ -286,7 +358,10 @@ submitBtn.onclick = async () => {
       return;
     }
 
-    await post('applyElectionSetup', { positions: Array.from(state.adminSelectedPositions) });
+    await post('applyElectionSetup', {
+      positions: Array.from(state.adminSelectedPositions),
+      scope: state.adminSelectedScope || 'all',
+    });
     hideApp();
     return;
   }
@@ -329,12 +404,40 @@ registerBtn.onclick = async () => {
   await setMode('vote');
 };
 
+publishResultsBtn.onclick = async () => {
+  const canPublishInMode = state.mode === 'admin' || (state.mode === 'results' && state.canPublishResults);
+  if (!canPublishInMode) {
+    return;
+  }
+
+  setPublishConfirm(true);
+};
+
+publishConfirmYes.onclick = async () => {
+  const canPublishInMode = state.mode === 'admin' || (state.mode === 'results' && state.canPublishResults);
+  if (!canPublishInMode) {
+    return;
+  }
+
+  await post('publishResults');
+  hideApp();
+};
+
+publishConfirmNo.onclick = () => {
+  setPublishConfirm(false);
+};
+
 closeBtn.onclick = closePanel;
 modeVoteBtn.onclick = () => setMode('vote');
 modeRunBtn.onclick = () => setMode('run');
 modeResultsBtn.onclick = () => setMode('results');
 
 scopeSelect.onchange = async () => {
+  if (state.mode === 'admin') {
+    state.adminSelectedScope = scopeSelect.value || 'all';
+    return;
+  }
+
   if (!scopeSelect.value) {
     return;
   }
@@ -370,8 +473,12 @@ window.addEventListener('message', (event) => {
   state.region = data.region;
   state.gameState = data.state;
   state.labels = data.labels || {};
+  state.activeScopeInfo = data.activeScopeInfo || '';
   state.positions = data.positions || [];
+  state.adminScopeOptions = data.adminScopeOptions || [];
+  state.adminSelectedScope = data.selectedAdminScope || 'all';
   state.autoSelectFirst = data.autoSelectFirst === true;
+  state.canPublishResults = data.canPublishResults === true;
   state.mode = data.mode || 'vote';
   state.adminSelectedPositions = new Set(data.selectedPositions || []);
 
@@ -386,6 +493,10 @@ window.addEventListener('message', (event) => {
   modeRunBtn.textContent = state.labels.run || 'Run for Office';
   modeResultsBtn.textContent = state.labels.results || 'Results';
   registerBtn.textContent = state.labels.register_now || 'Register now';
+  publishResultsBtn.textContent = state.labels.publish_results || 'Publish Results';
+  publishConfirmText.textContent = state.labels.publish_confirm_message || 'Publish results now?';
+  publishConfirmYes.textContent = state.labels.publish_confirm_yes || 'Yes';
+  publishConfirmNo.textContent = state.labels.publish_confirm_no || 'No';
   positionLabel.textContent = state.labels.select_position || 'Select Office';
   candidateLabel.textContent = state.labels.select_candidate || 'Select Candidate';
   scopeLabel.textContent = state.labels.select_scope || 'Select Scope';

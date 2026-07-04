@@ -39,7 +39,8 @@ end
 
 local ElectionRuntimeState = {
   Active = Config.ElectionBoothsActiveOnStart == true,
-  ActivePositions = {}
+  ActivePositions = {},
+  ScopeFilter = { type = 'all', values = {} }
 }
 
 local function getAllPositionNames()
@@ -124,31 +125,103 @@ local function isPositionActive(position)
   return false
 end
 
-local function setElectionActive(active, selectedPositions)
+local function normalizeScopeValue(value)
+  local text = tostring(value or '')
+  text = text:gsub('^%s+', ''):gsub('%s+$', '')
+  text = text:gsub('%s+', ' ')
+  return string.lower(text)
+end
+
+local function parseScopeSelection(selection)
+  if type(selection) ~= 'string' or selection == '' or selection == 'all' then
+    return { type = 'all', values = {} }
+  end
+
+  local scopeType, raw = selection:match('^(%w+)%:(.+)$')
+  if not scopeType or not raw then
+    return { type = 'all', values = {} }
+  end
+
+  local cleanType = normalizeScopeValue(scopeType)
+  if cleanType == 'county' then
+    cleanType = 'region'
+  end
+
+  if cleanType ~= 'state' and cleanType ~= 'region' and cleanType ~= 'city' then
+    return { type = 'all', values = {} }
+  end
+
+  if cleanType == 'region' then
+    local region, state = raw:match('^(.-)|(.+)$')
+    if region and state then
+      return {
+        type = 'region',
+        values = { string.format('%s|%s', normalizeScopeValue(region), normalizeScopeValue(state)) }
+      }
+    end
+
+    return {
+      type = 'region',
+      values = { normalizeScopeValue(raw) }
+    }
+  end
+
+  if cleanType == 'city' then
+    local city, state = raw:match('^(.-)|(.+)$')
+    if not city or not state then
+      return { type = 'all', values = {} }
+    end
+    return {
+      type = 'city',
+      values = { string.format('%s|%s', normalizeScopeValue(city), normalizeScopeValue(state)) }
+    }
+  end
+
+  return {
+    type = cleanType,
+    values = { normalizeScopeValue(raw) }
+  }
+end
+
+local function setElectionActive(active, selectedPositions, scopeFilter)
   ElectionRuntimeState.Active = active == true
   if ElectionRuntimeState.Active then
     ElectionRuntimeState.ActivePositions = normalizeSelectedPositions(selectedPositions)
+    if type(scopeFilter) == 'table' then
+      ElectionRuntimeState.ScopeFilter = {
+        type = scopeFilter.type or 'all',
+        values = cloneArray(scopeFilter.values or {})
+      }
+    end
   end
 
-  TriggerClientEvent('democracy:setElectionActive', -1, ElectionRuntimeState.Active, cloneArray(ElectionRuntimeState.ActivePositions))
+  TriggerClientEvent('democracy:setElectionActive', -1, ElectionRuntimeState.Active, cloneArray(ElectionRuntimeState.ActivePositions), {
+    type = ElectionRuntimeState.ScopeFilter.type,
+    values = cloneArray(ElectionRuntimeState.ScopeFilter.values)
+  })
 end
 
 VORP.addNewCallBack('democracy:getElectionActive', function(source, cb)
   cb({
     active = ElectionRuntimeState.Active,
-    positions = cloneArray(ElectionRuntimeState.ActivePositions)
+    positions = cloneArray(ElectionRuntimeState.ActivePositions),
+    scope = {
+      type = ElectionRuntimeState.ScopeFilter.type,
+      values = cloneArray(ElectionRuntimeState.ScopeFilter.values)
+    }
   })
 end)
 
 RegisterServerEvent('democracy:applyElectionSetup')
-AddEventHandler('democracy:applyElectionSetup', function(selectedPositions)
+AddEventHandler('democracy:applyElectionSetup', function(selectedPositions, selectedScope)
   local _source = source
   if not hasElectionControlPermission(_source) then
     TriggerClientEvent("vorp:TipBottom", _source, (_L('no_election_officials')), 4000)
     return
   end
 
-  setElectionActive(true, selectedPositions)
+  local scopeFilter = parseScopeSelection(selectedScope)
+  setElectionActive(true, selectedPositions, scopeFilter)
   TriggerClientEvent("vorp:TipBottom", _source, (_L('election_commands_enabled')), 4000)
   print('[democracy] electionstart setup applied - booths active')
 end)
@@ -167,11 +240,15 @@ local function handleElectionCommand(source, active)
       table.insert(positions, { name = pos.name, jurisdiction = pos.jurisdiction })
     end
 
-    TriggerClientEvent('democracy:openElectionSetup', source, positions, cloneArray(ElectionRuntimeState.ActivePositions))
+    local currentScope = ElectionRuntimeState.ScopeFilter or { type = 'all', values = {} }
+    TriggerClientEvent('democracy:openElectionSetup', source, positions, cloneArray(ElectionRuntimeState.ActivePositions), {
+      type = currentScope.type,
+      values = cloneArray(currentScope.values)
+    })
     return
   end
 
-  setElectionActive(active, ElectionRuntimeState.ActivePositions)
+  setElectionActive(active, ElectionRuntimeState.ActivePositions, ElectionRuntimeState.ScopeFilter)
 
   if source ~= 0 then
     if active then
@@ -202,6 +279,29 @@ end, false)
 
 RegisterCommand('wahlenstop', function(source)
   handleElectionCommand(source, false)
+end, false)
+
+local function openElectionResultsFor(source)
+  if source == 0 then
+    print('[democracy] /electionresults can only be used by in-game admins/election officials.')
+    return
+  end
+
+  if not hasElectionControlPermission(source) then
+    TriggerClientEvent("vorp:TipBottom", source, (_L('no_election_officials')), 4000)
+    return
+  end
+
+  TriggerClientEvent("vorp:TipBottom", source, (_L('welcome_election_official')), 4000)
+  TriggerClientEvent("democracy:openElecResMenu", source)
+end
+
+RegisterCommand('electionresults', function(source)
+  openElectionResultsFor(source)
+end, false)
+
+RegisterCommand('wahlergebnisse', function(source)
+  openElectionResultsFor(source)
 end, false)
 
 RegisterServerEvent('removeFromBallot')
@@ -395,7 +495,7 @@ AddEventHandler('addballotname', function(city,region,position, state)
           )
           local title = _L('discord_running_title', playername)
           local description = _L('discord_running_desc', playername, position, city, region)
-          SendToDiscordWebhook(title,description)
+          SendToDiscordWebhook(title,description, 'candidate')
         end
     end)
   else
@@ -413,7 +513,7 @@ AddEventHandler('addballotname', function(city,region,position, state)
       )
       local title = _L('discord_running_title', playername)
       local description = _L('discord_running_desc', playername, position, city, region)
-      SendToDiscordWebhook(title,description)
+      SendToDiscordWebhook(title,description, 'candidate')
   end
 end)
 
@@ -458,12 +558,12 @@ VORP.addNewCallBack("democracy:getCandidates", function(source, cb, params)
  
   local query, queryParams
 
-  if jurisdiction == "federal" then
-      query = 'SELECT character_id as cid, candidate_name as name, id as ballotID  FROM ballot WHERE position=@position'
-      queryParams = { ['@position'] = position }
-  elseif jurisdiction == "state" then
+    if jurisdiction == "state" then
       query = 'SELECT character_id as cid, candidate_name as name , id as ballotID FROM ballot WHERE position=@position and state=@state'
       queryParams = { ['@position'] = position, ['@state'] = state }
+    elseif jurisdiction == "county" then
+      query = 'SELECT character_id as cid, candidate_name as name , id as ballotID FROM ballot WHERE position=@position and region=@region and state=@state'
+      queryParams = { ['@position'] = position, ['@region'] = region, ['@state'] = state }
   elseif jurisdiction == "local" then
       query = 'SELECT character_id as cid, candidate_name as name , id as ballotID FROM ballot WHERE position=@position and city=@city'
       queryParams = { ['@position'] = position, ['@city'] = city }
@@ -485,12 +585,12 @@ VORP.addNewCallBack('democracy:hasvotervotedalready', function(source, cb, param
 
   local query, queryParams
 
-  if jurisdiction == "federal" then
-      query = 'SELECT * from ballot_votes where office = @position and voterID = @charid '
-      queryParams = { ['@position'] = position, ['@charid'] = charId }
-  elseif jurisdiction == "state" then
+    if jurisdiction == "state" then
       query = 'SELECT * from ballot_votes WHERE office=@position and state=@state and voterID = @charid'
       queryParams = { ['@position'] = position, ['@state'] = state,['@charid'] = charId  }
+    elseif jurisdiction == "county" then
+      query = 'SELECT * from ballot_votes WHERE office=@position and location=@region and state=@state and voterID = @charid'
+      queryParams = { ['@position'] = position, ['@region'] = region, ['@state'] = state, ['@charid'] = charId }
   elseif jurisdiction == "local" then
       query = 'SELECT * from ballot_votes WHERE office=@position and location=@city and voterID = @charid'
       queryParams = { ['@position'] = position, ['@city'] = city, ['@charid'] = charId  }
@@ -520,10 +620,10 @@ AddEventHandler('addNewVote', function(city, region, position, jurisdiction, can
   local location
   
   local query, queryParams
-  if jurisdiction == "federal" then
-      location="federal"
-  elseif jurisdiction =="state" then
+  if jurisdiction =="state" then
       location = state
+  elseif jurisdiction =="county" then
+      location = region
   elseif jurisdiction =="local" then
     location = city
   end
@@ -535,7 +635,7 @@ AddEventHandler('addNewVote', function(city, region, position, jurisdiction, can
 
       local title = _L('discord_voted_title', playername)
       local description = _L('discord_voted_desc', playername, position, location)
-      SendToDiscordWebhook(title,description)
+      SendToDiscordWebhook(title,description, 'activity')
 end)
 
 
@@ -554,10 +654,10 @@ AddEventHandler('updateVote', function(city, region, position, jurisdiction, can
   local location
 
   local query, queryParams
-  if jurisdiction == "federal" then
-      location="federal"
-  elseif jurisdiction =="state" then
+  if jurisdiction =="state" then
       location = state
+  elseif jurisdiction =="county" then
+      location = region
   elseif jurisdiction =="local" then
     location = city
   end
@@ -568,22 +668,14 @@ AddEventHandler('updateVote', function(city, region, position, jurisdiction, can
 
       local title = _L('discord_changed_vote_title', playername)
       local description = _L('discord_changed_vote_desc', playername, position, location)
-      SendToDiscordWebhook(title,description)
+      SendToDiscordWebhook(title,description, 'activity')
       
     end)
 
 
 RegisterServerEvent('openelectionresultsmenu')
 AddEventHandler('openelectionresultsmenu', function()
-    local _source = source
-    local user = VorpCore.getUser(_source)
-    
-  if getUserGroup(user) == 'admin' or isElectionOfficial(getUserJob(user)) then
-        TriggerClientEvent("vorp:TipBottom", _source, (_L('welcome_election_official')), 4000)
-        TriggerClientEvent("democracy:openElecResMenu", _source)
-    else
-        TriggerClientEvent("vorp:TipBottom", _source, (_L('no_election_officials')), 4000)
-    end
+  openElectionResultsFor(source)
 end)
 
 
@@ -597,16 +689,16 @@ VORP.addNewCallBack("democracy:getResults", function(source, cb, params)
   local state = params.state
   local query, queryParams
 
-  if jurisdiction == "federal" then
-    query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position FROM ballot b ' ..
-            'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position ' ..
-            'GROUP BY candidate_name, v.office, jurisdiction, location, region, city ORDER BY votes DESC'
-    queryParams = { ['@position'] = position }
-  elseif jurisdiction == "state" then
+  if jurisdiction == "state" then
     query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position, b.city, b.region FROM ballot b ' ..
             'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position AND b.state = @state ' ..
             'GROUP BY candidate_name, v.office, region, city, b.state ORDER BY votes DESC'
     queryParams = { ['@position'] = position, ['@state'] = location }
+  elseif jurisdiction == "county" then
+    query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position, b.city, b.region FROM ballot b ' ..
+            'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position AND region = @region AND b.state = @state ' ..
+            'GROUP BY candidate_name, v.office, region, city, b.state ORDER BY votes DESC'
+    queryParams = { ['@position'] = position, ['@region'] = location, ['@state'] = state }
   elseif jurisdiction == "local" then
     query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position, b.city, b.region FROM ballot b ' ..
             'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position AND city = @city ' ..
@@ -619,15 +711,71 @@ VORP.addNewCallBack("democracy:getResults", function(source, cb, params)
   end)
 end)
 
- function SendToDiscordWebhook(title, description)
-  local webhook = Config.Webhooks.URL
+local function SendDiscordViaHttp(webhook, title, description, color, name, logo)
+  local embedColor = tonumber(color) or 16711680
+  local payload = {
+    username = name or "Election Bot",
+    avatar_url = logo or "",
+    embeds = {
+      {
+        title = tostring(title or "Election Update"),
+        description = tostring(description or ""),
+        color = embedColor,
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+      }
+    }
+  }
+
+  PerformHttpRequest(webhook, function(statusCode, _, _)
+    if statusCode ~= 204 and statusCode ~= 200 then
+      print(("[democracy] Discord webhook request failed with status %s"):format(tostring(statusCode)))
+    end
+  end, "POST", json.encode(payload), { ["Content-Type"] = "application/json" })
+end
+
+local function resolveWebhookByCategory(category)
+  local webhooks = Config.Webhooks or {}
+  local primary = webhooks.URL
+  local candidate = webhooks.CandidateURL
+  local results = webhooks.ResultsURL
+  local activity = webhooks.ActivityURL
+
+  if category == 'candidate' and candidate and candidate ~= '' then
+    return candidate
+  end
+
+  if category == 'results' and results and results ~= '' then
+    return results
+  end
+
+  if category == 'activity' and activity and activity ~= '' then
+    return activity
+  end
+
+  return primary
+end
+
+function SendToDiscordWebhook(title, description, category)
+  local webhook = resolveWebhookByCategory(category)
   local color = Config.Webhooks.Color
   local name = Config.Webhooks.WebhookName
   local logo = Config.Webhooks.WebhookLogo
-  if webhook and webhook ~= '' then
-    VORP.AddWebhook(title, webhook, description, color, name, logo)
+
+  if not webhook or webhook == '' then
+    return
   end
-end 
+
+  if VORP and type(VORP.AddWebhook) == 'function' then
+    local ok = pcall(VORP.AddWebhook, title, webhook, description, color, name, logo)
+    if ok then
+      TriggerEvent('democracy:webhook:sent', category or 'default', title, webhook)
+      return
+    end
+  end
+
+  SendDiscordViaHttp(webhook, title, description, color, name, logo)
+  TriggerEvent('democracy:webhook:sent', category or 'default', title, webhook)
+end
 
 -- ELECTION CYCLE AUTOMATION
 Citizen.CreateThread(function()
@@ -682,7 +830,7 @@ function StartNewElectionCycle(state)
         -- Announce the start of a new election
         local title = _L('new_election_started_title', state)
         local description = _L('new_election_started_desc')
-        SendToDiscordWebhook(title, description)
+        SendToDiscordWebhook(title, description, 'results')
     end)
 end
 
@@ -829,24 +977,124 @@ local function formatWinnerScope(winner)
   return winner.state
 end
 
-local function buildResultsArchiveText(state, winners)
-  if not winners or #winners == 0 then
+local function getPositionJurisdiction(position)
+  for _, pos in ipairs(Config.Positions or {}) do
+    if pos.name == position then
+      return string.lower(pos.jurisdiction or "local")
+    end
+  end
+  return "local"
+end
+
+local function roundToOneDecimal(value)
+  return math.floor((value * 10) + 0.5) / 10
+end
+
+local function normalizeScopeKey(value)
+  local text = tostring(value or "")
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  text = text:gsub("%s+", " ")
+  return string.lower(text)
+end
+
+local function cleanScopeValue(value)
+  local text = tostring(value or "")
+  text = text:gsub("^%s+", ""):gsub("%s+$", "")
+  text = text:gsub("%s+", " ")
+  return text
+end
+
+local function formatRaceScope(position, state, city, region)
+  local jurisdiction = getPositionJurisdiction(position)
+  if jurisdiction == "state" then
+    return cleanScopeValue(state)
+  end
+  if jurisdiction == "county" then
+    return cleanScopeValue(region or state)
+  end
+  return cleanScopeValue(city or state)
+end
+
+local function collectStateRaceResults(state, cb)
+  MySQL.query('SELECT b.position, b.state, b.city, b.region, b.candidate_name, COUNT(v.voteID) as votes FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.state = @state GROUP BY b.id ORDER BY b.position ASC, b.region ASC, b.city ASC, votes DESC, b.candidate_name ASC', { ['@state'] = state }, function(rows)
+    cb(rows or {})
+  end)
+end
+
+local function buildResultsArchiveText(state, winners, raceRows)
+  if (not winners or #winners == 0) and (not raceRows or #raceRows == 0) then
     return _L('discord_results_archive_empty', state)
   end
 
-  table.sort(winners, function(a, b)
-    if a.position == b.position then
-      return (tonumber(a.votes) or 0) > (tonumber(b.votes) or 0)
-    end
-    return a.position < b.position
-  end)
+  local races = {}
+  local order = {}
+  local overallVotes = 0
 
-  local lines = {}
-  for _, winner in ipairs(winners) do
-    table.insert(lines, string.format('%s | %s | %s | %s: %s', winner.position, winner.candidate_name, formatWinnerScope(winner), _L('nui_votes_suffix'), tostring(winner.votes or 0)))
+  for _, row in ipairs(raceRows or {}) do
+    local scope = formatRaceScope(row.position, row.state, row.city, row.region)
+    local key = string.format('%s||%s', normalizeScopeKey(row.position), normalizeScopeKey(scope))
+    if not races[key] then
+      races[key] = {
+        position = cleanScopeValue(row.position),
+        scope = scope,
+        totalVotes = 0,
+        candidates = {}
+      }
+      table.insert(order, key)
+    end
+
+    local votes = tonumber(row.votes) or 0
+    races[key].totalVotes = races[key].totalVotes + votes
+    overallVotes = overallVotes + votes
+    table.insert(races[key].candidates, {
+      name = row.candidate_name,
+      votes = votes
+    })
   end
 
-  return table.concat(lines, '\n')
+  table.sort(order, function(a, b)
+    local left = races[a]
+    local right = races[b]
+    if left.position == right.position then
+      return tostring(left.scope) < tostring(right.scope)
+    end
+    return tostring(left.position) < tostring(right.position)
+  end)
+
+  local lines = {
+    string.format(_L('discord_results_total_votes'), tostring(overallVotes)),
+    ''
+  }
+
+  for _, key in ipairs(order) do
+    local race = races[key]
+    table.insert(lines, string.format('%s | %s | %s: %s', race.position, race.scope, _L('nui_votes_suffix'), tostring(race.totalVotes)))
+
+    table.sort(race.candidates, function(a, b)
+      if a.votes == b.votes then
+        return tostring(a.name) < tostring(b.name)
+      end
+      return a.votes > b.votes
+    end)
+
+    for _, candidate in ipairs(race.candidates) do
+      local percent = 0
+      if race.totalVotes > 0 then
+        percent = roundToOneDecimal((candidate.votes / race.totalVotes) * 100)
+      end
+
+      table.insert(lines, string.format('- %s: %s %s (%.1f%%)', candidate.name, tostring(candidate.votes), _L('nui_votes_suffix'), percent))
+    end
+
+    table.insert(lines, '')
+  end
+
+  local text = table.concat(lines, '\n')
+  if #text > 3900 then
+    text = text:sub(1, 3900) .. '\n...'
+  end
+
+  return text
 end
 
 local function StoreWinner(winner, state)
@@ -866,7 +1114,7 @@ local function StoreWinner(winner, state)
 
     local title = _L('winner_announcement_title', winner.candidate_name, winner.position, state)
     local description = _L('winner_announcement_desc', termInWeeks)
-    SendToDiscordWebhook(title, description)
+    SendToDiscordWebhook(title, description, 'results')
     assignWinnerOfficeJob(winner, state)
 end
 
@@ -884,20 +1132,7 @@ end
     for _, positionInfo in ipairs(positionsInState) do
       local jurisdiction = string.lower(positionInfo.jurisdiction)
 
-      if jurisdiction == "federal" then
-        pending = pending + 1
-        MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name }, function(rows)
-          if rows and #rows > 0 then
-            local winner = rows[1]
-            winner.term = getTermForPosition(winner.position)
-            winner.state = state
-            winner.scope = "federal"
-            table.insert(winners, winner)
-          end
-          pending = pending - 1
-          done()
-        end)
-      elseif jurisdiction == "state" then
+      if jurisdiction == "state" then
         pending = pending + 1
         MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position and b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@state'] = state }, function(rows)
           if rows and #rows > 0 then
@@ -909,6 +1144,34 @@ end
           end
           pending = pending - 1
           done()
+        end)
+      elseif jurisdiction == "county" then
+        pending = pending + 1
+        MySQL.query('SELECT DISTINCT region FROM ballot WHERE state = @state AND position = @position', { ['@state'] = state, ['@position'] = positionInfo.name }, function(regions)
+          if not regions or #regions == 0 then
+            pending = pending - 1
+            done()
+            return
+          end
+
+          local regionPending = #regions
+          for _, regionRow in ipairs(regions) do
+            MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position AND b.region = @region AND b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@region'] = regionRow.region, ['@state'] = state }, function(rows)
+              if rows and #rows > 0 then
+                local winner = rows[1]
+                winner.term = getTermForPosition(winner.position)
+                winner.state = state
+                winner.scope = regionRow.region
+                table.insert(winners, winner)
+              end
+
+              regionPending = regionPending - 1
+              if regionPending == 0 then
+                pending = pending - 1
+                done()
+              end
+            end)
+          end
         end)
       else
         pending = pending + 1
@@ -956,9 +1219,11 @@ end
         StoreWinner(winner, state)
       end
 
-      local archiveTitle = _L('discord_results_archive_title', state)
-      local archiveDescription = buildResultsArchiveText(state, winners)
-      SendToDiscordWebhook(archiveTitle, archiveDescription)
+      collectStateRaceResults(state, function(raceRows)
+        local archiveTitle = _L('discord_results_archive_title', state)
+        local archiveDescription = buildResultsArchiveText(state, winners, raceRows)
+        SendToDiscordWebhook(archiveTitle, archiveDescription, 'results')
+      end)
 
       MySQL.Async.execute('DELETE FROM ballot WHERE state = @state', {['@state'] = state})
       MySQL.Async.execute('DELETE FROM ballot_votes WHERE state = @state', {['@state'] = state})
@@ -966,7 +1231,7 @@ end
 
       local title = _L('election_ended_title', state)
       local description = _L('election_ended_desc')
-      SendToDiscordWebhook(title, description)
+      SendToDiscordWebhook(title, description, 'results')
 
       StartNewElectionCycle(state)
     end)
@@ -1007,3 +1272,9 @@ end
   RegisterCommand('wahlenfinalize', function(source, args)
     handleElectionFinalizeCommand(source, args)
   end, false)
+
+RegisterServerEvent('democracy:publishResults')
+AddEventHandler('democracy:publishResults', function()
+  local _source = source
+  handleElectionFinalizeCommand(_source, { 'all' })
+end)
