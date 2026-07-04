@@ -37,6 +37,173 @@ local function getUserJob(user)
   return user.getJob
 end
 
+local ElectionRuntimeState = {
+  Active = Config.ElectionBoothsActiveOnStart == true,
+  ActivePositions = {}
+}
+
+local function getAllPositionNames()
+  local names = {}
+  for _, pos in ipairs(Config.Positions) do
+    table.insert(names, pos.name)
+  end
+  return names
+end
+
+ElectionRuntimeState.ActivePositions = getAllPositionNames()
+
+local function hasElectionControlPermission(source)
+  if source == 0 then
+    return true
+  end
+
+  local user = VorpCore.getUser(source)
+  if not user then
+    return false
+  end
+
+  local group = getUserGroup(user)
+  local job = getUserJob(user)
+
+  if group == 'admin' then
+    return true
+  end
+
+  for _, official in ipairs(Config.ElectionOfficials) do
+    if official == group or official == job then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function cloneArray(input)
+  local out = {}
+  for _, v in ipairs(input or {}) do
+    table.insert(out, v)
+  end
+  return out
+end
+
+local function normalizeSelectedPositions(selected)
+  if type(selected) ~= 'table' then
+    return getAllPositionNames()
+  end
+
+  local valid = {}
+  local allowed = {}
+  for _, pos in ipairs(Config.Positions) do
+    allowed[pos.name] = true
+  end
+
+  for _, name in ipairs(selected) do
+    if allowed[name] then
+      table.insert(valid, name)
+    end
+  end
+
+  if #valid == 0 then
+    valid = getAllPositionNames()
+  end
+
+  return valid
+end
+
+local function isPositionActive(position)
+  if not ElectionRuntimeState.Active then
+    return false
+  end
+
+  for _, name in ipairs(ElectionRuntimeState.ActivePositions or {}) do
+    if name == position then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function setElectionActive(active, selectedPositions)
+  ElectionRuntimeState.Active = active == true
+  if ElectionRuntimeState.Active then
+    ElectionRuntimeState.ActivePositions = normalizeSelectedPositions(selectedPositions)
+  end
+
+  TriggerClientEvent('democracy:setElectionActive', -1, ElectionRuntimeState.Active, cloneArray(ElectionRuntimeState.ActivePositions))
+end
+
+VORP.addNewCallBack('democracy:getElectionActive', function(source, cb)
+  cb({
+    active = ElectionRuntimeState.Active,
+    positions = cloneArray(ElectionRuntimeState.ActivePositions)
+  })
+end)
+
+RegisterServerEvent('democracy:applyElectionSetup')
+AddEventHandler('democracy:applyElectionSetup', function(selectedPositions)
+  local _source = source
+  if not hasElectionControlPermission(_source) then
+    TriggerClientEvent("vorp:TipBottom", _source, (_L('no_election_officials')), 4000)
+    return
+  end
+
+  setElectionActive(true, selectedPositions)
+  TriggerClientEvent("vorp:TipBottom", _source, (_L('election_commands_enabled')), 4000)
+  print('[democracy] electionstart setup applied - booths active')
+end)
+
+local function handleElectionCommand(source, active)
+  if not hasElectionControlPermission(source) then
+    if source ~= 0 then
+      TriggerClientEvent("vorp:TipBottom", source, (_L('no_election_officials')), 4000)
+    end
+    return
+  end
+
+  if active and source ~= 0 and Config.UseNUI ~= false then
+    local positions = {}
+    for _, pos in ipairs(Config.Positions) do
+      table.insert(positions, { name = pos.name, jurisdiction = pos.jurisdiction })
+    end
+
+    TriggerClientEvent('democracy:openElectionSetup', source, positions, cloneArray(ElectionRuntimeState.ActivePositions))
+    return
+  end
+
+  setElectionActive(active, ElectionRuntimeState.ActivePositions)
+
+  if source ~= 0 then
+    if active then
+      TriggerClientEvent("vorp:TipBottom", source, (_L('election_commands_enabled')), 4000)
+    else
+      TriggerClientEvent("vorp:TipBottom", source, (_L('election_commands_disabled')), 4000)
+    end
+  end
+
+  if active then
+    print('[democracy] electionstart executed - booths active')
+  else
+    print('[democracy] electionstop executed - booths inactive')
+  end
+end
+
+RegisterCommand('electionstart', function(source)
+  handleElectionCommand(source, true)
+end, false)
+
+RegisterCommand('electionstop', function(source)
+  handleElectionCommand(source, false)
+end, false)
+
+RegisterCommand('wahlenstart', function(source)
+  handleElectionCommand(source, true)
+end, false)
+
+RegisterCommand('wahlenstop', function(source)
+  handleElectionCommand(source, false)
+end, false)
+
 RegisterServerEvent('removeFromBallot')
 AddEventHandler('removeFromBallot', function()
   local _source = source
@@ -189,6 +356,11 @@ end)
 RegisterServerEvent('addballotname')
 AddEventHandler('addballotname', function(city,region,position, state)
   local _source = source
+  if not isPositionActive(position) then
+    TriggerClientEvent("vorp:TipBottom", _source, (_L('elections_not_active')), 4000)
+    return
+  end
+
   local user = VorpCore.getUser(_source) 
   local Character = VorpCore.getUser(_source).getUsedCharacter
   local playername = Character.firstname .. ' ' .. Character.lastname
@@ -276,6 +448,11 @@ VORP.addNewCallBack("democracy:getCandidates", function(source, cb, params)
   local city = params.city
   local region = params.region
   local position = params.position
+  if not isPositionActive(position) then
+      cb({})
+      return
+  end
+
   local jurisdiction = params.jurisdiction
   local state = params.state
  
@@ -331,6 +508,11 @@ end)
 RegisterServerEvent('addNewVote')
 AddEventHandler('addNewVote', function(city, region, position, jurisdiction, candidateid, ballotid, state)
   local _source = source
+  if not isPositionActive(position) then
+    TriggerClientEvent("vorp:TipBottom", _source, (_L('elections_not_active')), 4000)
+    return
+  end
+
   local user = VorpCore.getUser(_source) 
   local Character = VorpCore.getUser(_source).getUsedCharacter
   local playername = Character.firstname .. ' ' .. Character.lastname
@@ -360,6 +542,11 @@ end)
 RegisterServerEvent('updateVote')
 AddEventHandler('updateVote', function(city, region, position, jurisdiction, candidateid, ballotid, state)
   local _source = source
+  if not isPositionActive(position) then
+    TriggerClientEvent("vorp:TipBottom", _source, (_L('elections_not_active')), 4000)
+    return
+  end
+
   local user = VorpCore.getUser(_source) 
   local Character = VorpCore.getUser(_source).getUsedCharacter
   local playername = Character.firstname .. ' ' .. Character.lastname
@@ -499,94 +686,170 @@ function StartNewElectionCycle(state)
     end)
 end
 
-function EndElectionCycle(state, cycleId)
-    print("Ending election cycle for " .. state)
-    -- Update the end_time of the old cycle
-    MySQL.Async.execute('UPDATE election_cycles SET end_time = NOW() WHERE id = @id', {['@id'] = cycleId})
-
-    -- Tally results and store winners
-    TallyAndStoreWinners(state)
-
-    -- Clean up for the next election
-    MySQL.Async.execute('DELETE FROM ballot WHERE state = @state', {['@state'] = state})
-    MySQL.Async.execute('DELETE FROM ballot_votes WHERE state = @state', {['@state'] = state})
-    MySQL.Async.execute('DELETE FROM ballot_registration WHERE state = @state', {['@state'] = state})
-    
-    -- Announce the end of the election
-    local title = _L('election_ended_title', state)
-    local description = _L('election_ended_desc')
-    SendToDiscordWebhook(title, description)
-
-    -- Start a new cycle
-    StartNewElectionCycle(state)
+local function getTermForPosition(posName)
+  for _, p in ipairs(Config.Positions) do
+    if p.name == posName then
+      return p.term
+    end
+  end
+  return 0
 end
 
-function TallyAndStoreWinners(state)
-    print("Tallying and storing winners for " .. state)
-    local positionsInState = {}
-    for _, pos in ipairs(Config.Positions) do
-        for _, s in ipairs(pos.states) do
-            if s == state then
-                table.insert(positionsInState, pos)
-                break
-            end
-        end
+local function getPositionsInState(state)
+  local positionsInState = {}
+  for _, pos in ipairs(Config.Positions) do
+    for _, s in ipairs(pos.states) do
+      if s == state then
+        table.insert(positionsInState, pos)
+        break
+      end
     end
-
-    for _, positionInfo in ipairs(positionsInState) do
-        local query, queryParams
-        
-        local getTerm = function(posName)
-            for _,p in ipairs(Config.Positions) do
-                if p.name == posName then
-                    return p.term
-                end
-            end
-            return 0
-        end
-
-        local jurisdiction = string.lower(positionInfo.jurisdiction)
-
-        if jurisdiction == "federal" then
-             query = 'SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position GROUP BY b.id ORDER BY votes DESC LIMIT 1'
-             queryParams = { ['@position'] = positionInfo.name }
-             
-             MySQL.query(query, queryParams, function(winner)
-                if winner and #winner > 0 then
-                    winner[1].term = getTerm(winner[1].position)
-                    StoreWinner(winner[1], state)
-                end
-            end)
-        elseif jurisdiction == "state" then
-            query = 'SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position and b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1'
-            queryParams = { ['@position'] = positionInfo.name, ['@state'] = state }
-
-            MySQL.query(query, queryParams, function(winner)
-                if winner and #winner > 0 then
-                    winner[1].term = getTerm(winner[1].position)
-                    StoreWinner(winner[1], state)
-                end
-            end)
-        elseif jurisdiction == "local" then
-            -- For local, we need to determine the winner for each city
-             local cities_query = 'SELECT DISTINCT city FROM ballot WHERE state = @state AND position = @position'
-             MySQL.query(cities_query, {['@state'] = state, ['@position'] = positionInfo.name}, function(cities)
-                for _, cityRow in ipairs(cities) do
-                     local city_winner_query = 'SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position AND b.city = @city GROUP BY b.id ORDER BY votes DESC LIMIT 1'
-                     MySQL.query(city_winner_query, {['@position'] = positionInfo.name, ['@city'] = cityRow.city}, function(winners)
-                        if winners and #winners > 0 then
-                            local winner = winners[1]
-                            winner.term = getTerm(winner.position)
-                            StoreWinner(winner, state)
-                        end
-                     end)
-                end
-             end)
-        end
-    end
+  end
+  return positionsInState
 end
 
-function StoreWinner(winner, state)
+local function getAllElectionStates()
+  local states = {}
+  local seen = {}
+  for _, location in ipairs(Config.VotingLocations) do
+    if not seen[location.state] then
+      seen[location.state] = true
+      table.insert(states, location.state)
+    end
+  end
+  return states
+end
+
+local function findOnlinePlayerByCharId(charId)
+  for _, src in ipairs(GetPlayers()) do
+    local sourceNum = tonumber(src)
+    local user = VorpCore.getUser(sourceNum)
+    if user and user.getUsedCharacter and user.getUsedCharacter.charIdentifier then
+      if tostring(user.getUsedCharacter.charIdentifier) == tostring(charId) then
+        return sourceNum, user
+      end
+    end
+  end
+  return nil, nil
+end
+
+local function getWinnerJobName(position)
+  local cfg = Config.WinnerJobAssignment or {}
+  local map = cfg.PositionToJob or {}
+  if map[position] then
+    return map[position]
+  end
+
+  local fallback = string.lower(position):gsub('[^%w]+', '_')
+  fallback = fallback:gsub('_+', '_'):gsub('^_', ''):gsub('_$', '')
+  return fallback
+end
+
+local function assignWinnerOfficeJob(winner, state)
+  local cfg = Config.WinnerJobAssignment or {}
+  if cfg.Enabled == false then
+    return
+  end
+
+  local jobName = getWinnerJobName(winner.position)
+  local grade = tonumber(cfg.DefaultGrade or 0) or 0
+  local jobLabel = winner.position
+
+  local function persistMultiJobToDatabase(charId)
+    if cfg.AssignOfflineMultiJob == false then
+      return
+    end
+
+    MySQL.single('SELECT multijobs FROM characters WHERE charidentifier = ? LIMIT 1', { charId }, function(row)
+      if not row then
+        return
+      end
+
+      local parsed = {}
+      if row.multijobs and row.multijobs ~= '' then
+        local ok, decoded = pcall(json.decode, row.multijobs)
+        if ok and type(decoded) == 'table' then
+          parsed = decoded
+        end
+      end
+
+      parsed[jobName] = {
+        grade = grade,
+        label = jobLabel
+      }
+
+      MySQL.Async.execute('UPDATE characters SET multijobs = ? WHERE charidentifier = ?', { json.encode(parsed), charId })
+    end)
+  end
+
+  local sourceNum, user = findOnlinePlayerByCharId(winner.character_id)
+  if not sourceNum or not user then
+    persistMultiJobToDatabase(winner.character_id)
+    return
+  end
+
+  local character = user.getUsedCharacter
+  local assigned = false
+
+  if cfg.UseMultiJob and character and type(character.setMultiJob) == 'function' then
+    local ok = pcall(character.setMultiJob, jobName, grade, jobLabel)
+    assigned = ok
+  end
+
+  -- Optional hook for external multi-job resources.
+  if cfg.UseMultiJob then
+    TriggerEvent('democracy:assignWinnerJob', sourceNum, winner.character_id, winner.position, state, jobName, grade, assigned)
+  end
+
+  if cfg.EquipWinnerJob and character then
+    if type(character.setJob) == 'function' then
+      pcall(character.setJob, jobName)
+    end
+    if type(character.setJobGrade) == 'function' then
+      pcall(character.setJobGrade, grade)
+    end
+    if type(character.setJobLabel) == 'function' then
+      pcall(character.setJobLabel, jobLabel)
+    end
+  end
+
+  if not assigned then
+    persistMultiJobToDatabase(winner.character_id)
+  end
+
+  if assigned then
+    TriggerClientEvent("vorp:TipBottom", sourceNum, (_L('winner_job_assigned', winner.position, jobName)), 6000)
+  end
+end
+
+local function formatWinnerScope(winner)
+  if winner.scope and winner.scope ~= '' then
+    return winner.scope
+  end
+  return winner.state
+end
+
+local function buildResultsArchiveText(state, winners)
+  if not winners or #winners == 0 then
+    return _L('discord_results_archive_empty', state)
+  end
+
+  table.sort(winners, function(a, b)
+    if a.position == b.position then
+      return (tonumber(a.votes) or 0) > (tonumber(b.votes) or 0)
+    end
+    return a.position < b.position
+  end)
+
+  local lines = {}
+  for _, winner in ipairs(winners) do
+    table.insert(lines, string.format('%s | %s | %s | %s: %s', winner.position, winner.candidate_name, formatWinnerScope(winner), _L('nui_votes_suffix'), tostring(winner.votes or 0)))
+  end
+
+  return table.concat(lines, '\n')
+end
+
+local function StoreWinner(winner, state)
     local termInWeeks = winner.term
     -- term in weeks from config
     local termInSeconds = tonumber(termInWeeks) * 7 * 24 * 60 * 60
@@ -604,4 +867,143 @@ function StoreWinner(winner, state)
     local title = _L('winner_announcement_title', winner.candidate_name, winner.position, state)
     local description = _L('winner_announcement_desc', termInWeeks)
     SendToDiscordWebhook(title, description)
+    assignWinnerOfficeJob(winner, state)
 end
+
+  local function collectStateWinners(state, cb)
+    local positionsInState = getPositionsInState(state)
+    local winners = {}
+    local pending = 0
+
+    local function done()
+      if pending == 0 then
+        cb(winners)
+      end
+    end
+
+    for _, positionInfo in ipairs(positionsInState) do
+      local jurisdiction = string.lower(positionInfo.jurisdiction)
+
+      if jurisdiction == "federal" then
+        pending = pending + 1
+        MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name }, function(rows)
+          if rows and #rows > 0 then
+            local winner = rows[1]
+            winner.term = getTermForPosition(winner.position)
+            winner.state = state
+            winner.scope = "federal"
+            table.insert(winners, winner)
+          end
+          pending = pending - 1
+          done()
+        end)
+      elseif jurisdiction == "state" then
+        pending = pending + 1
+        MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position and b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@state'] = state }, function(rows)
+          if rows and #rows > 0 then
+            local winner = rows[1]
+            winner.term = getTermForPosition(winner.position)
+            winner.state = state
+            winner.scope = state
+            table.insert(winners, winner)
+          end
+          pending = pending - 1
+          done()
+        end)
+      else
+        pending = pending + 1
+        MySQL.query('SELECT DISTINCT city FROM ballot WHERE state = @state AND position = @position', { ['@state'] = state, ['@position'] = positionInfo.name }, function(cities)
+          if not cities or #cities == 0 then
+            pending = pending - 1
+            done()
+            return
+          end
+
+          local cityPending = #cities
+          for _, cityRow in ipairs(cities) do
+            MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position AND b.city = @city GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@city'] = cityRow.city }, function(rows)
+              if rows and #rows > 0 then
+                local winner = rows[1]
+                winner.term = getTermForPosition(winner.position)
+                winner.state = state
+                winner.scope = cityRow.city
+                table.insert(winners, winner)
+              end
+
+              cityPending = cityPending - 1
+              if cityPending == 0 then
+                pending = pending - 1
+                done()
+              end
+            end)
+          end
+        end)
+      end
+    end
+
+    done()
+  end
+
+  function EndElectionCycle(state, cycleId)
+    print("Ending election cycle for " .. state)
+
+    if cycleId then
+      MySQL.Async.execute('UPDATE election_cycles SET end_time = NOW() WHERE id = @id', {['@id'] = cycleId})
+    end
+
+    collectStateWinners(state, function(winners)
+      for _, winner in ipairs(winners) do
+        StoreWinner(winner, state)
+      end
+
+      local archiveTitle = _L('discord_results_archive_title', state)
+      local archiveDescription = buildResultsArchiveText(state, winners)
+      SendToDiscordWebhook(archiveTitle, archiveDescription)
+
+      MySQL.Async.execute('DELETE FROM ballot WHERE state = @state', {['@state'] = state})
+      MySQL.Async.execute('DELETE FROM ballot_votes WHERE state = @state', {['@state'] = state})
+      MySQL.Async.execute('DELETE FROM ballot_registration WHERE state = @state', {['@state'] = state})
+
+      local title = _L('election_ended_title', state)
+      local description = _L('election_ended_desc')
+      SendToDiscordWebhook(title, description)
+
+      StartNewElectionCycle(state)
+    end)
+  end
+
+  local function handleElectionFinalizeCommand(source, args)
+    if not hasElectionControlPermission(source) then
+      if source ~= 0 then
+        TriggerClientEvent("vorp:TipBottom", source, (_L('no_election_officials')), 4000)
+      end
+      return
+    end
+
+    local target = args and args[1]
+    local states = {}
+
+    if target and target ~= '' and string.lower(target) ~= 'all' then
+      table.insert(states, target)
+    else
+      states = getAllElectionStates()
+    end
+
+    for _, state in ipairs(states) do
+      MySQL.single('SELECT id FROM election_cycles WHERE state = ? ORDER BY start_time DESC LIMIT 1', { state }, function(row)
+        EndElectionCycle(state, row and row.id or nil)
+      end)
+    end
+
+    if source ~= 0 then
+      TriggerClientEvent("vorp:TipBottom", source, (_L('election_finalize_started')), 5000)
+    end
+  end
+
+  RegisterCommand('electionfinalize', function(source, args)
+    handleElectionFinalizeCommand(source, args)
+  end, false)
+
+  RegisterCommand('wahlenfinalize', function(source, args)
+    handleElectionFinalizeCommand(source, args)
+  end, false)

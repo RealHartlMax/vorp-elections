@@ -13,6 +13,7 @@ Config.Webhooks={
 
 Config.Prompts = {
     Prompt1 = 0x760A9C6F, -- G Key
+  Prompt2 = 0xE30CD707, -- R Key (Run for Office)
 }
 
 --Job name for elections allowed folks.  Admin is allowed to run results by default
@@ -66,8 +67,39 @@ Config.ElectionCycle = {
     HourToRun = 3, -- 24 hour format, 3 = 3am
 }
 
+Config.WinnerJobAssignment = {
+  Enabled = true, -- Assign office jobs to winners when election is finalized.
+  UseMultiJob = true, -- Triggers event hook 'democracy:assignWinnerJob' for multi-job integrations.
+  EquipWinnerJob = true, -- Also switch active job to the won office for online winners.
+  AssignOfflineMultiJob = true, -- Writes won office into characters.multijobs for offline winners.
+  DefaultGrade = 0,
+  PositionToJob = {
+    ['President (USA)'] = 'president_usa',
+    ['Secretary of War (USA)'] = 'secwar_usa',
+    ['Chief Justice (USA)'] = 'chiefjustice_usa',
+    ['Senator East (USA)'] = 'senator_east_usa',
+    ['Senator West (USA)'] = 'senator_west_usa',
+    ['Presidente (Mexico)'] = 'presidente_mexico',
+    ['Ministro de Guerra (Mexico)'] = 'minguerra_mexico',
+    ['Presidente de la Suprema Corte (Mexico)'] = 'supremacorte_mexico',
+    ['Diputado del Norte (Mexico)'] = 'dip_norte_mexico',
+    ['Diputado del Sur (Mexico)'] = 'dip_sur_mexico',
+    ['Governor (USA)'] = 'governor_usa',
+    ['State Marshal (USA)'] = 'marshal_usa',
+    ['Surgeon General (USA)'] = 'surgeon_usa',
+    ['Gobernador (Mexico)'] = 'gobernador_mexico',
+    ['Jefe Rural (Mexico)'] = 'jeferural_mexico',
+    ['Medico Jefe (Mexico)'] = 'medicojefe_mexico',
+    ['Mayor (USA)'] = 'mayor_usa',
+    ['Alcalde (Mexico)'] = 'alcalde_mexico'
+  }
+}
+
 Config.ShowVotingBlips = true -- Show configured voting booth blips on the map.
-Config.VoteRadius = 2.0
+Config.UseNUI = true -- If true, use NUI for voting and running workflows.
+Config.ElectionBoothsActiveOnStart = false -- Start with voting booth prompts/blips disabled until an admin starts elections.
+Config.PromptRadius = 2.0 -- Radius in meters where native help prompts are shown.
+Config.VoteRadius = 2.0 -- Backward compatibility fallback if PromptRadius is missing.
 Config.OnlyBlipVotingLocations = true -- If true, only locations with blip=true can be used for voting.
 -- Per location: set canVote=false to keep a blip but disable voting at that location.
 

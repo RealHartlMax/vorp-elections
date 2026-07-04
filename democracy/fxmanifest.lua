@@ -9,12 +9,20 @@ shared_scripts {
     'lang.lua'
 }
 
+ui_page 'ui/index.html'
+
+files {
+	'ui/index.html',
+	'ui/style.css',
+	'ui/app.js'
+}
+
 client_scripts {
 	'client.lua',
 	
 }
 
 server_scripts {
-	'server.lua',
-	'@oxmysql/lib/MySQL.lua'
+	'@oxmysql/lib/MySQL.lua',
+	'server.lua'
 }

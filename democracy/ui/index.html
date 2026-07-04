@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Election Booth</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="hidden">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h1 id="title">Election Booth</h1>
+          <p id="subtitle">-</p>
+        </div>
+        <button id="closeBtn" class="ghost">Close</button>
+      </div>
+
+      <div class="mode-row">
+        <button id="modeVote" class="mode-btn active">Vote</button>
+        <button id="modeRun" class="mode-btn">Run for Office</button>
+        <button id="modeResults" class="mode-btn hidden">Results</button>
+      </div>
+
+      <div id="statusBanner" class="status-banner hidden"></div>
+
+      <div id="scopeRow" class="scope-row hidden">
+        <label id="scopeLabel" for="scopeSelect">Select Scope</label>
+        <select id="scopeSelect"></select>
+      </div>
+
+      <div class="content-grid">
+        <div class="card">
+          <h2 id="positionLabel">Select Office</h2>
+          <div id="positionList" class="list"></div>
+        </div>
+
+        <div class="card" id="candidateCard">
+          <h2 id="candidateLabel">Select Candidate</h2>
+          <div id="candidateList" class="list"></div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="submitBtn" class="primary">Cast Vote</button>
+      </div>
+
+      <div id="registerActions" class="actions hidden">
+        <button id="registerBtn" class="primary">Register</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

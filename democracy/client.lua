@@ -23,9 +23,32 @@ TriggerEvent("vorp_menu:getData",function(cb)
    end)
 
 local votePrompt
+local runPrompt
 local votePromptGroup = GetRandomIntInRange(0, 0xFFFFFF)
 local votePromptReady = false
 local votingBlips = {}
+local nuiOpen = false
+local currentBoothContext = nil
+local currentOnBallot = false
+local electionActive = false
+local nextPromptUseAt = 0
+local activePositionLookup = {}
+
+local function IsPositionEnabled(positionName)
+    if not electionActive then
+        return false
+    end
+
+    if not positionName then
+        return false
+    end
+
+    if next(activePositionLookup) == nil then
+        return true
+    end
+
+    return activePositionLookup[positionName] == true
+end
 
 local function AddBlipForCoordNative(blipType, x, y, z)
     return Citizen.InvokeNative(0x554D9D53F696D002, blipType, x, y, z)
@@ -41,6 +64,16 @@ end
 
 local function SetBlipNameNative(blip, name)
     Citizen.InvokeNative(0x9CB1A1623062F402, blip, name)
+end
+
+local function RemoveBlipNative(blip)
+    -- Reliable RedM/CFX HUD remove blip native.
+    Citizen.InvokeNative(0x86A652570E5F25DD, blip)
+
+    -- Fallback for runtimes exposing RemoveBlip directly.
+    if RemoveBlip then
+        RemoveBlip(blip)
+    end
 end
 
 local function PromptRegisterBeginNative()
@@ -67,6 +100,10 @@ local function PromptSetStandardModeNative(prompt, standard)
     Citizen.InvokeNative(0xCC6656799977741B, prompt, standard)
 end
 
+local function PromptSetGroupNative(prompt, group)
+    Citizen.InvokeNative(0x2F11D3A254169EA4, prompt, group, 0)
+end
+
 local function PromptRegisterEndNative(prompt)
     Citizen.InvokeNative(0xF7AA2696A22AD8B9, prompt)
 end
@@ -79,9 +116,268 @@ local function PromptHasStandardModeCompletedNative(prompt)
     return Citizen.InvokeNative(0xC92AC953F0A982AE, prompt)
 end
 
+local function SetPromptVisibility(enabled)
+    if votePrompt then
+        PromptSetEnabledNative(votePrompt, enabled)
+        PromptSetVisibleNative(votePrompt, enabled)
+    end
+
+    if runPrompt then
+        PromptSetEnabledNative(runPrompt, enabled)
+        PromptSetVisibleNative(runPrompt, enabled)
+    end
+end
+
+local function GetPositionJurisdiction(positionName)
+    for _, v in pairs(Config.Positions) do
+        if v.name == positionName then
+            return string.lower(v.jurisdiction)
+        end
+    end
+    return "local"
+end
+
+local function GetPositionsForState(state)
+    local positions = {}
+    for _, v in pairs(Config.Positions) do
+        if IsPositionEnabled(v.name) then
+        for _, s in ipairs(v.states) do
+            if s == state then
+                table.insert(positions, { name = v.name, jurisdiction = v.jurisdiction })
+                break
+            end
+        end
+        end
+    end
+    return positions
+end
+
+local function GetAllPositions(includeInactive)
+    local positions = {}
+    for _, v in pairs(Config.Positions) do
+        if includeInactive or IsPositionEnabled(v.name) then
+            table.insert(positions, { name = v.name, jurisdiction = v.jurisdiction })
+        end
+    end
+    return positions
+end
+
+local function BuildResultScopes(position)
+    local jurisdiction = GetPositionJurisdiction(position)
+    local scopes = {}
+    local seen = {}
+
+    if jurisdiction == "federal" then
+        table.insert(scopes, { label = _L('nui_results_federal'), value = "federal", state = nil })
+        return scopes, jurisdiction
+    end
+
+    for _, v in pairs(Config.VotingLocations) do
+        if jurisdiction == "state" then
+            if not seen[v.state] then
+                seen[v.state] = true
+                table.insert(scopes, { label = v.state, value = v.state, state = v.state })
+            end
+        else
+            local key = v.city
+            if not seen[key] then
+                seen[key] = true
+                table.insert(scopes, {
+                    label = string.format("%s (%s)", v.city, v.state),
+                    value = v.city,
+                    state = v.state
+                })
+            end
+        end
+    end
+
+    return scopes, jurisdiction
+end
+
+local function SetNuiOpenState(isOpen)
+    nuiOpen = isOpen
+    SetNuiFocus(isOpen, isOpen)
+
+    if not isOpen then
+        nextPromptUseAt = GetGameTimer() + 700
+    end
+end
+
+local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFirst, customPositions, selectedPositions)
+    if mode == "results" or mode == "admin" then
+        currentBoothContext = nil
+    else
+        currentBoothContext = {
+            city = city,
+            region = region,
+            state = state
+        }
+    end
+
+    currentOnBallot = onBallot == true
+    local subtitleCity = city or "-"
+    local subtitleRegion = region or "-"
+    local subtitleState = state or "-"
+    local positions = customPositions or (mode == "results" and GetAllPositions(true) or GetPositionsForState(state))
+
+    local labels = {
+        title = _L('nui_title'),
+        vote = _L('nui_vote'),
+        run = _L('nui_run'),
+        results = _L('nui_results'),
+        register = _L('nui_register'),
+        admin = _L('nui_admin_setup'),
+        close = _L('nui_close'),
+        select_position = _L('nui_select_position'),
+        select_candidate = _L('nui_select_candidate'),
+        select_scope = _L('nui_select_scope'),
+        submit_vote = _L('nui_submit_vote'),
+        submit_run = _L('nui_submit_run'),
+        submit_admin = _L('nui_submit_admin'),
+        admin_select_required = _L('nui_admin_select_required'),
+        register_prompt = _L('register_to_vote_prompt', subtitleCity),
+        register_now = _L('nui_register_now'),
+        results_empty = _L('nui_results_empty'),
+        results_for = _L('results_for_label', "%s"),
+        votes_suffix = _L('nui_votes_suffix'),
+        scope_federal = _L('nui_results_federal'),
+        no_candidates = _L('no_candidates_found')
+    }
+
+    SendNUIMessage({
+        action = "open",
+        resourceName = GetCurrentResourceName(),
+        mode = mode,
+        city = city,
+        region = region,
+        state = state,
+        subtitleCity = subtitleCity,
+        subtitleRegion = subtitleRegion,
+        subtitleState = subtitleState,
+        onBallot = currentOnBallot,
+        autoSelectFirst = autoSelectFirst == true,
+        selectedPositions = selectedPositions or {},
+        positions = positions,
+        labels = labels
+    })
+
+    SetNuiOpenState(true)
+end
+
+RegisterNUICallback('close', function(_, cb)
+    SetNuiOpenState(false)
+    currentBoothContext = nil
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('runForOffice', function(data, cb)
+    if not currentBoothContext or not data or not data.position then
+        cb({ ok = false })
+        return
+    end
+
+    TriggerServerEvent('addballotname', currentBoothContext.city, currentBoothContext.region, data.position, currentBoothContext.state)
+    TriggerEvent("vorp:TipBottom", (_L('you_are_on_ballot', data.position)), 4000)
+    SetNuiOpenState(false)
+    currentBoothContext = nil
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('registerToVote', function(_, cb)
+    if not currentBoothContext then
+        cb({ ok = false })
+        return
+    end
+
+    TriggerServerEvent('registerVoter', currentBoothContext.city, currentBoothContext.region, currentBoothContext.state)
+    TriggerEvent("vorp:TipBottom", (_L('player_registered', currentBoothContext.city)), 4000)
+    cb({ ok = true, message = _L('nui_register_success') })
+end)
+
+RegisterNUICallback('getCandidates', function(data, cb)
+    if not currentBoothContext or not data or not data.position then
+        cb({ ok = false, candidates = {} })
+        return
+    end
+
+    local jurisdiction = GetPositionJurisdiction(data.position)
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getCandidates", function(result)
+        local candidates = {}
+        for _, entry in pairs(result) do
+            table.insert(candidates, {
+                name = entry.name,
+                cid = entry.cid,
+                ballotID = entry.ballotID
+            })
+        end
+        cb({ ok = true, candidates = candidates, jurisdiction = jurisdiction })
+    end, {
+        city = currentBoothContext.city,
+        region = currentBoothContext.region,
+        jurisdiction = jurisdiction,
+        position = data.position,
+        state = currentBoothContext.state
+    })
+end)
+
+RegisterNUICallback('getResultsScopes', function(data, cb)
+    if not data or not data.position then
+        cb({ ok = false, scopes = {} })
+        return
+    end
+
+    local scopes, jurisdiction = BuildResultScopes(data.position)
+    cb({ ok = true, scopes = scopes, jurisdiction = jurisdiction })
+end)
+
+RegisterNUICallback('getResultsData', function(data, cb)
+    if not data or not data.position or not data.jurisdiction then
+        cb({ ok = false, rows = {} })
+        return
+    end
+
+    local location = data.location or "federal"
+    local state = data.state
+
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResults", function(result)
+        local rows = {}
+        for _, entry in pairs(result) do
+            table.insert(rows, {
+                name = entry.candidate_name,
+                votes = tonumber(entry.votes) or 0
+            })
+        end
+        cb({ ok = true, rows = rows })
+    end, {
+        location = location,
+        position = data.position,
+        jurisdiction = data.jurisdiction,
+        state = state
+    })
+end)
+
+RegisterNUICallback('castVote', function(data, cb)
+    if not currentBoothContext or not data or not data.position or not data.jurisdiction or not data.candidateid or not data.ballotid then
+        cb({ ok = false })
+        return
+    end
+
+    SetNuiOpenState(false)
+    CastVote(true, currentBoothContext.city, currentBoothContext.region, data.position, data.jurisdiction, data.candidateid, data.ballotid, currentOnBallot, currentBoothContext.state, true)
+    currentBoothContext = nil
+    cb({ ok = true })
+end)
+
 local function CreateVotingBlips()
     if Config.ShowVotingBlips == false then
         return
+    end
+
+    if #votingBlips > 0 then
+        for _, blip in ipairs(votingBlips) do
+            RemoveBlipNative(blip)
+        end
+        votingBlips = {}
     end
 
     for _, v in pairs(Config.VotingLocations) do
@@ -95,29 +391,101 @@ local function CreateVotingBlips()
     end
 end
 
+local function RemoveVotingBlips()
+    if #votingBlips == 0 then
+        return
+    end
+
+    for _, blip in ipairs(votingBlips) do
+        RemoveBlipNative(blip)
+    end
+    votingBlips = {}
+end
+
+local function ApplyElectionState(isActive, activePositions)
+    electionActive = isActive == true
+    activePositionLookup = {}
+
+    if type(activePositions) == 'table' then
+        for _, name in ipairs(activePositions) do
+            activePositionLookup[name] = true
+        end
+    end
+
+    if electionActive then
+        CreateVotingBlips()
+    else
+        RemoveVotingBlips()
+        SetPromptVisibility(false)
+        SendNUIMessage({ action = "close" })
+        if nuiOpen then
+            SetNuiOpenState(false)
+            currentBoothContext = nil
+        end
+    end
+end
+
+RegisterNetEvent('democracy:setElectionActive')
+AddEventHandler('democracy:setElectionActive', function(isActive, activePositions)
+    ApplyElectionState(isActive, activePositions)
+end)
+
 local function SetupVotePrompt()
     if votePromptReady then
         return
     end
 
-    local promptLabel = CreateVarString(10, "LITERAL_STRING", _L('press_to_vote'))
+    local votePromptLabel = CreateVarString(10, "LITERAL_STRING", _L('press_to_vote'))
     votePrompt = PromptRegisterBeginNative()
     PromptSetControlActionNative(votePrompt, Config.Prompts.Prompt1)
-    PromptSetTextNative(votePrompt, promptLabel)
-    PromptSetEnabledNative(votePrompt, true)
-    PromptSetVisibleNative(votePrompt, true)
+    PromptSetTextNative(votePrompt, votePromptLabel)
+    PromptSetEnabledNative(votePrompt, false)
+    PromptSetVisibleNative(votePrompt, false)
     PromptSetStandardModeNative(votePrompt, true)
+    PromptSetGroupNative(votePrompt, votePromptGroup)
     PromptRegisterEndNative(votePrompt)
+
+    if Config.Prompts and Config.Prompts.Prompt2 then
+        local runPromptLabel = CreateVarString(10, "LITERAL_STRING", _L('press_to_run'))
+        runPrompt = PromptRegisterBeginNative()
+        PromptSetControlActionNative(runPrompt, Config.Prompts.Prompt2)
+        PromptSetTextNative(runPrompt, runPromptLabel)
+        PromptSetEnabledNative(runPrompt, false)
+        PromptSetVisibleNative(runPrompt, false)
+        PromptSetStandardModeNative(runPrompt, true)
+        PromptSetGroupNative(runPrompt, votePromptGroup)
+        PromptRegisterEndNative(runPrompt)
+    end
 
     votePromptReady = true
 end
 
 -- Following thread looks for ped in radius of voting locations and shows a native prompt.
 Citizen.CreateThread(function()
-    CreateVotingBlips()
     SetupVotePrompt()
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = "close" })
+    ApplyElectionState(Config.ElectionBoothsActiveOnStart == true, nil)
+
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getElectionActive", function(stateData)
+        local active = stateData
+        local positions = nil
+
+        if type(stateData) == 'table' then
+            active = stateData.active
+            positions = stateData.positions
+        end
+
+        ApplyElectionState(active, positions)
+    end)
 
     while true do
+        if not electionActive then
+            SetPromptVisibility(false)
+            Citizen.Wait(1000)
+            goto continue_loop
+        end
+
         local playerPed = PlayerPedId()
         local coords = GetEntityCoords(playerPed)
         local closestLocation
@@ -137,16 +505,28 @@ Citizen.CreateThread(function()
             end
         end
 
-        local inRange = closestLocation and closestDistance <= Config.VoteRadius
-        PromptSetEnabledNative(votePrompt, inRange)
-        PromptSetVisibleNative(votePrompt, inRange)
+        local promptRadius = Config.PromptRadius or Config.VoteRadius or 2.0
+        local inRange = (closestLocation ~= nil) and (closestDistance <= promptRadius)
+        local promptActive = inRange and (not nuiOpen) and (GetGameTimer() >= nextPromptUseAt)
+        PromptSetEnabledNative(votePrompt, promptActive)
+        PromptSetVisibleNative(votePrompt, promptActive)
+        if runPrompt then
+            PromptSetEnabledNative(runPrompt, promptActive)
+            PromptSetVisibleNative(runPrompt, promptActive)
+        end
 
-        if inRange then
+        if promptActive then
             local groupLabel = CreateVarString(10, "LITERAL_STRING", _L('vote_in_label', closestLocation.city, closestLocation.region))
             PromptSetActiveGroupThisFrameNative(votePromptGroup, groupLabel)
 
-            if PromptHasStandardModeCompletedNative(votePrompt) then
+            local votePressed = PromptHasStandardModeCompletedNative(votePrompt) or IsControlJustReleased(0, Config.Prompts.Prompt1)
+            local runPressed = runPrompt and (PromptHasStandardModeCompletedNative(runPrompt) or IsControlJustReleased(0, Config.Prompts.Prompt2))
+
+            if votePressed then
                 TriggerEvent('democracy:votingbooth', closestLocation.city, closestLocation.region, closestLocation.state)
+                Citizen.Wait(1000)
+            elseif runPressed then
+                TriggerEvent('democracy:runbooth', closestLocation.city, closestLocation.region, closestLocation.state)
                 Citizen.Wait(1000)
             else
                 Citizen.Wait(0)
@@ -154,11 +534,18 @@ Citizen.CreateThread(function()
         else
             Citizen.Wait(500)
         end
+
+        ::continue_loop::
     end
 end)
 
 RegisterNetEvent('democracy:votingbooth')
 AddEventHandler('democracy:votingbooth', function(city, region, state)
+    if not electionActive then
+        TriggerEvent("vorp:TipBottom", (_L('elections_not_active')), 4000)
+        return
+    end
+
     local vcity = city
     local vregion = region
     local vstate = state
@@ -176,26 +563,80 @@ AddEventHandler('democracy:votingbooth', function(city, region, state)
         
         if result then
             print("Player is registered.")
-            OpenStartMenu(true, vcity, vregion, onBallot, vstate)
+            if Config.UseNUI == false then
+                OpenStartMenu(true, vcity, vregion, onBallot, vstate)
+            else
+                OpenElectionNui("vote", vcity, vregion, vstate, onBallot)
+            end
         else
             print("Player is not registered.")
-            local button = _L('register_to_vote_prompt', vcity)
-            local placeholder = _L('placeholder_yes_no')
+            if Config.UseNUI == false then
+                local button = _L('register_to_vote_prompt', vcity)
+                local placeholder = _L('placeholder_yes_no')
 
-            TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
-                print("User input received:", answer)
-                if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
-                    TriggerServerEvent('registerVoter', vcity, vregion, vstate)
-                    TriggerEvent("vorp:TipBottom", (_L('player_registered', vcity)), 4000)
-                    OpenStartMenu(true, vcity, vregion,onBallot, vstate)
-                else
-                    TriggerEvent("vorp:TipBottom", (_L('player_not_want_vote')), 4000)
-                    OpenStartMenu(false,vcity,vregion,onBallot, vstate)
-                end
-            end)
+                TriggerEvent("vorpinputs:getInput", button, placeholder, function(answer)
+                    print("User input received:", answer)
+                    if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
+                        TriggerServerEvent('registerVoter', vcity, vregion, vstate)
+                        TriggerEvent("vorp:TipBottom", (_L('player_registered', vcity)), 4000)
+                        OpenStartMenu(true, vcity, vregion,onBallot, vstate)
+                    else
+                        TriggerEvent("vorp:TipBottom", (_L('player_not_want_vote')), 4000)
+                        OpenStartMenu(false,vcity,vregion,onBallot, vstate)
+                    end
+                end)
+            else
+                OpenElectionNui("register", vcity, vregion, vstate, onBallot)
+            end
         end
     end, { city = vcity, region = vregion })
 end)
+end)
+
+RegisterNetEvent('democracy:runbooth')
+AddEventHandler('democracy:runbooth', function(city, region, state)
+    if not electionActive then
+        TriggerEvent("vorp:TipBottom", (_L('elections_not_active')), 4000)
+        return
+    end
+
+    local vcity = city
+    local vregion = region
+    local vstate = state
+    local onBallot = false
+
+    TriggerEvent("vorp:ExecuteServerCallBack", "democracy:checkonballot", function(cb)
+        onBallot = cb
+
+        TriggerEvent("vorp:ExecuteServerCallBack", "democracy:checkRegistration", function(registered)
+            if Config.UseNUI == false then
+                if onBallot then
+                    OpenStartMenu(registered, vcity, vregion, onBallot, vstate)
+                else
+                    OpenRunMenu(registered, vcity, vregion, onBallot, vstate)
+                end
+            else
+                OpenElectionNui("run", vcity, vregion, vstate, onBallot)
+            end
+        end, { city = vcity, region = vregion })
+    end)
+end)
+
+RegisterNUICallback('applyElectionSetup', function(data, cb)
+    if not data or type(data.positions) ~= 'table' then
+        cb({ ok = false })
+        return
+    end
+
+    TriggerServerEvent('democracy:applyElectionSetup', data.positions)
+    SetNuiOpenState(false)
+    currentBoothContext = nil
+    cb({ ok = true })
+end)
+
+RegisterNetEvent('democracy:openElectionSetup')
+AddEventHandler('democracy:openElectionSetup', function(positions, selectedPositions)
+    OpenElectionNui("admin", nil, nil, nil, false, false, positions or {}, selectedPositions or {})
 end)
 
 function OpenStartMenu(registered, city, region, onBallot, state)
@@ -256,11 +697,13 @@ function OpenRunMenu(registered, city, region, onBallot, state)
     
     local addMenuElement
     for k,v in pairs(Config.Positions) do
+        if IsPositionEnabled(v.name) then
         for i, s in ipairs(v.states) do
             if s == vstate then
                 addMenuElement ={ label = v.name, value = v.name, desc = _L('run_for_office_desc', v.jurisdiction) }
                 table.insert(menuElements, addMenuElement)
             end
+        end
         end
     end
     addMenuElement= { label = _L('menu_main'), value = "back", desc = "Back to Main Menu" }
@@ -309,12 +752,14 @@ function OpenVoteMenu(registered, city, region, onBallot, state)
     
     local addMenuElement
     for k,v in pairs(Config.Positions) do
+        if IsPositionEnabled(v.name) then
         for i, s in ipairs(v.states) do
             if s == vstate then
                 addMenuElement ={ label = v.name, value = v.name, desc = _L('vote_for_label', v.name) }
                 table.insert(menuElements, addMenuElement)
                 break
             end
+        end
         end
     end
     addMenuElement= { label = _L('menu_main'), value = "back", desc = "Back to Main Menu" }
@@ -424,7 +869,7 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
     end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position, state = vstate })
 end
 
-function CastVote(registered,city, region, position,jurisdiction,candidateid,ballotid,onballot, state)
+function CastVote(registered,city, region, position,jurisdiction,candidateid,ballotid,onballot, state, fromNui)
     local vcity = city
     local vregion = region
     local vstate = state
@@ -436,6 +881,18 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
     print("from client:", vcity, vregion, position, jurisdiction,"ballot:", ballotid, "cand:", candidateid)
 
     TriggerEvent("vorp:ExecuteServerCallBack", "democracy:hasvotervotedalready", function(cb)
+        if fromNui then
+            if cb then
+                TriggerEvent("vorp:TipBottom", (_L('vote_reset')), 4000)
+                TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
+            else
+                TriggerServerEvent('addNewVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
+            end
+
+            TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000)
+            return
+        end
+
         local result = cb
         if cb then 
             local button = _L('already_voted_prompt')
@@ -446,7 +903,9 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
                     TriggerEvent("vorp:TipBottom", (_L('vote_reset')), 4000) 
                     TriggerServerEvent('updateVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
                     TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000) 
-                    OpenVoteMenu(registered, city, region, onBallot, vstate)
+                    if not fromNui then
+                        OpenVoteMenu(registered, city, region, onBallot, vstate)
+                    end
                 else
                     TriggerEvent("vorp:TipBottom", (_L('old_vote_kept')), 4000) 
                 end
@@ -460,7 +919,9 @@ function CastVote(registered,city, region, position,jurisdiction,candidateid,bal
                 if answer == "y" or answer == "Y" or answer == "j" or answer == "J" then
                     TriggerServerEvent('addNewVote', vcity, vregion, position, jurisdiction, candidateid, ballotid, vstate)
                     TriggerEvent("vorp:TipBottom", (_L('vote_casted', jurisdiction, position, vcity, vregion)), 4000) 
-                    OpenVoteMenu(registered, city, region, onBallot, vstate)
+                    if not fromNui then
+                        OpenVoteMenu(registered, city, region, onBallot, vstate)
+                    end
                 end
             end)    
         end
@@ -513,6 +974,11 @@ end, false)
 
 RegisterNetEvent('democracy:openElecResMenu')
 AddEventHandler('democracy:openElecResMenu', function()
+    if Config.UseNUI ~= false then
+        OpenElectionNui("results", nil, nil, nil, false, false)
+        return
+    end
+
     VORPMenu.CloseAll()
     local menuElements = {}
     
