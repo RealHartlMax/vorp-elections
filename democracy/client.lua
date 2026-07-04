@@ -22,30 +22,96 @@ TriggerEvent("vorp_menu:getData",function(cb)
     VORPMenu = cb
    end)
 
---Following Thread looks for ped in radius of voting locations the in config and offers G for menu
+local votePrompt
+local votePromptGroup = GetRandomIntInRange(0, 0xFFFFFF)
+local votePromptReady = false
+
+local function PromptRegisterBeginNative()
+    return Citizen.InvokeNative(0x04F97DE45A519419)
+end
+
+local function PromptSetControlActionNative(prompt, control)
+    Citizen.InvokeNative(0xB5352B7494A08258, prompt, control)
+end
+
+local function PromptSetTextNative(prompt, text)
+    Citizen.InvokeNative(0x5DD02A8318420DD7, prompt, text)
+end
+
+local function PromptSetEnabledNative(prompt, enabled)
+    Citizen.InvokeNative(0x8A0FB4D03A630D21, prompt, enabled)
+end
+
+local function PromptSetVisibleNative(prompt, visible)
+    Citizen.InvokeNative(0x71215ACCFDE075EE, prompt, visible)
+end
+
+local function PromptSetStandardModeNative(prompt, standard)
+    Citizen.InvokeNative(0xCC6656799977741B, prompt, standard)
+end
+
+local function PromptRegisterEndNative(prompt)
+    Citizen.InvokeNative(0xF7AA2696A22AD8B9, prompt)
+end
+
+local function PromptSetActiveGroupThisFrameNative(group, label)
+    Citizen.InvokeNative(0xC65A45D4453C2627, group, label)
+end
+
+local function PromptHasStandardModeCompletedNative(prompt)
+    return Citizen.InvokeNative(0xC92AC953F0A982AE, prompt)
+end
+
+local function SetupVotePrompt()
+    if votePromptReady then
+        return
+    end
+
+    local promptLabel = CreateVarString(10, "LITERAL_STRING", _L('press_to_vote'))
+    votePrompt = PromptRegisterBeginNative()
+    PromptSetControlActionNative(votePrompt, Config.Prompts.Prompt1)
+    PromptSetTextNative(votePrompt, promptLabel)
+    PromptSetEnabledNative(votePrompt, true)
+    PromptSetVisibleNative(votePrompt, true)
+    PromptSetStandardModeNative(votePrompt, true)
+    PromptRegisterEndNative(votePrompt)
+
+    votePromptReady = true
+end
+
+-- Following thread looks for ped in radius of voting locations and shows a native prompt.
 Citizen.CreateThread(function()
+    SetupVotePrompt()
+
     while true do
         local playerPed = PlayerPedId()
         local coords = GetEntityCoords(playerPed)
-        
-        for k, v in pairs(Config.VotingLocations) do 
+        local closestLocation
+        local closestDistance = math.huge
+
+        for _, v in pairs(Config.VotingLocations) do
             local boothCoords = vector3(v.coords.x, v.coords.y, v.coords.z)
             local distance = #(coords - boothCoords)
-            
-            if distance < 10.0 then
-                DrawTxt(_L('press_to_vote'), 0.50, 0.85, 0.7, 0.7, true, 255, 255, 255, 255, true)
-                
-                if IsControlJustReleased(0, 0x760A9C6F) then
-                    local city = v.city 
-                    local region = v.region
-                    local state = v.state
-                    TriggerEvent('democracy:votingbooth',city, region, state)   
-                    Citizen.Wait(1000)
-                end
+
+            if distance < closestDistance then
+                closestDistance = distance
+                closestLocation = v
             end
         end
-        
-        Citizen.Wait(1000)
+
+        if closestLocation and closestDistance <= Config.VoteRadius then
+            local groupLabel = CreateVarString(10, "LITERAL_STRING", _L('vote_in_label', closestLocation.city, closestLocation.region))
+            PromptSetActiveGroupThisFrameNative(votePromptGroup, groupLabel)
+
+            if PromptHasStandardModeCompletedNative(votePrompt) then
+                TriggerEvent('democracy:votingbooth', closestLocation.city, closestLocation.region, closestLocation.state)
+                Citizen.Wait(1000)
+            else
+                Citizen.Wait(0)
+            end
+        else
+            Citizen.Wait(500)
+        end
     end
 end)
 

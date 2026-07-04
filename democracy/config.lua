@@ -1,6 +1,6 @@
 Config = {}
 
-Config.Lang = 'en-EN'
+Config.Lang = 'de-DE'
 
 Config.DevDebug = true
 
