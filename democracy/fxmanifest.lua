@@ -9,7 +9,9 @@ shared_scripts {
 	'config/system.lua',
 	'config/offices.lua',
 	'config/locations.lua',
-    'lang.lua'
+	'lang.lua',
+	'lang/en.lua',
+	'lang/de.lua'
 }
 
 ui_page 'ui/index.html'

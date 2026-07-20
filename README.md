@@ -8,13 +8,13 @@ Based on "Democracy" by Jeffy Detexas.
 
 - Register voters at voting booths.
 - Run for office (one active candidacy per character).
-- Vote per office with option to change an existing vote.
+- Vote once per office/race (vote changes are disabled).
 - View election results in-game via officials-only menu.
-- Optional Discord webhook notifications for candidacy, voting, vote changes, cycle start/end, and winner announcements.
+- Optional Discord webhook notifications for candidacy and voting activity, plus results archive posting on finalization.
 - Multi-state data model with separate election data per state.
 - Position lists are filtered by booth state in run/vote menus.
 - Term-limit checks support configurable scope (per state and optional time window).
-- Basic automatic election cycle processing (state-based) plus manual SQL cleanup script.
+- Automatic election cycle processing (state-based) with configurable start weekday/hour and duration.
 
 ## Dependencies
 
@@ -57,7 +57,7 @@ To better match that era, adjust:
 
 - Office titles (for example region-specific and period-appropriate roles).
 - Jurisdiction naming and government structure for your lore timeline.
-- Language/UI text in `lang.lua`.
+- Language/UI text in `lang/en.lua` and `lang/de.lua` (base container in `lang.lua`).
 - Voting locations and regions in `config.lua`.
 
 ## Known Issues (Important)

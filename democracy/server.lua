@@ -43,6 +43,29 @@ local function getUserJob(user)
   return user.getJob
 end
 
+local function buildCharacterName(firstname, lastname, fallback)
+  local first = tostring(firstname or ''):gsub('^%s+', ''):gsub('%s+$', '')
+  local last = tostring(lastname or ''):gsub('^%s+', ''):gsub('%s+$', '')
+  local full = (first .. ' ' .. last):gsub('^%s+', ''):gsub('%s+$', '')
+
+  if full ~= '' then
+    return full
+  end
+
+  return tostring(fallback or '')
+end
+
+local function resolveCharacterNameByCharId(charId, fallback, cb)
+  MySQL.single('SELECT firstname, lastname FROM characters WHERE charidentifier = ? LIMIT 1', { charId }, function(row)
+    if row then
+      cb(buildCharacterName(row.firstname, row.lastname, fallback))
+      return
+    end
+
+    cb(tostring(fallback or ''))
+  end)
+end
+
 local ElectionRuntimeState = {
   Active = Config.ElectionBoothsActiveOnStart == true,
   ActivePositions = {},
@@ -824,8 +847,24 @@ AddEventHandler('addballotname', function(city,region,position, state)
 
   local user = VorpCore.getUser(_source) 
   local Character = VorpCore.getUser(_source).getUsedCharacter
-  local playername = Character.firstname .. ' ' .. Character.lastname
+  local fallbackName = buildCharacterName(Character.firstname, Character.lastname, GetPlayerName(_source))
   local charId = user.getUsedCharacter.charIdentifier
+
+  local function insertCandidate(playername)
+    MySQL.Async.execute('INSERT INTO ballot (character_id, candidate_name, position, city, region, state) VALUES (@character_id, @candidate_name, @position, @city, @region, @state)',
+      {
+        ['@character_id'] = charId,
+        ['@candidate_name'] = playername,
+        ['@position'] = position,
+        ['@city'] = city,
+        ['@region'] = region,
+        ['@state'] = state,
+      }
+    )
+    local title = _L('discord_running_title', playername)
+    local description = _L('discord_running_desc', playername, position, city, region)
+    SendToDiscordWebhook(title,description, 'candidate')
+  end
   
   local positionInfo
   for _, pos in ipairs(Config.Positions) do
@@ -835,47 +874,23 @@ AddEventHandler('addballotname', function(city,region,position, state)
     end
   end
 
-  if positionInfo and positionInfo.termlimit > 0 then
-    local termLimitQuery, termLimitParams = getTermLimitQueryAndParams(charId, position, state)
-    MySQL.query(termLimitQuery, termLimitParams, function(result)
-        local count = result[1].count
-        if count >= positionInfo.termlimit then
-            TriggerClientEvent("vorp:TipBottom", _source, (_L('term_limit_reached', positionInfo.termlimit, position)), 6000)
-        else
-            -- Continue to add to ballot
-            MySQL.Async.execute('INSERT INTO ballot (character_id, candidate_name, position, city, region, state) VALUES (@character_id, @candidate_name, @position, @city, @region, @state)',
-            {
-              ['@character_id'] = charId,
-              ['@candidate_name'] = playername,
-              ['@position'] = position,
-              ['@city'] = city,
-              ['@region'] = region,
-              ['@state'] = state,
-        
-            }
-          )
-          local title = _L('discord_running_title', playername)
-          local description = _L('discord_running_desc', playername, position, city, region)
-          SendToDiscordWebhook(title,description, 'candidate')
-        end
-    end)
-  else
-      -- No term limit, just add to ballot
-      MySQL.Async.execute('INSERT INTO ballot (character_id, candidate_name, position, city, region, state) VALUES (@character_id, @candidate_name, @position, @city, @region, @state)',
-        {
-          ['@character_id'] = charId,
-          ['@candidate_name'] = playername,
-          ['@position'] = position,
-          ['@city'] = city,
-          ['@region'] = region,
-          ['@state'] = state,
-    
-        }
-      )
-      local title = _L('discord_running_title', playername)
-      local description = _L('discord_running_desc', playername, position, city, region)
-      SendToDiscordWebhook(title,description, 'candidate')
-  end
+  resolveCharacterNameByCharId(charId, fallbackName, function(playername)
+    if positionInfo and positionInfo.termlimit > 0 then
+      local termLimitQuery, termLimitParams = getTermLimitQueryAndParams(charId, position, state)
+      MySQL.query(termLimitQuery, termLimitParams, function(result)
+          local count = result[1].count
+          if count >= positionInfo.termlimit then
+              TriggerClientEvent("vorp:TipBottom", _source, (_L('term_limit_reached', positionInfo.termlimit, position)), 6000)
+          else
+              -- Continue to add to ballot
+              insertCandidate(playername)
+          end
+      end)
+    else
+        -- No term limit, just add to ballot
+        insertCandidate(playername)
+    end
+  end)
 end)
 
 local function isElectionOfficial(identifier)
@@ -920,13 +935,13 @@ VORP.addNewCallBack("democracy:getCandidates", function(source, cb, params)
   local query, queryParams
 
     if jurisdiction == "state" then
-      query = 'SELECT character_id as cid, candidate_name as name , id as ballotID FROM ballot WHERE position=@position and state=@state'
+      query = 'SELECT b.character_id as cid, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as name, b.id as ballotID FROM ballot b LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.position=@position and b.state=@state'
       queryParams = { ['@position'] = position, ['@state'] = state }
     elseif jurisdiction == "county" then
-      query = 'SELECT character_id as cid, candidate_name as name , id as ballotID FROM ballot WHERE position=@position and region=@region and state=@state'
+      query = 'SELECT b.character_id as cid, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as name, b.id as ballotID FROM ballot b LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.position=@position and b.region=@region and b.state=@state'
       queryParams = { ['@position'] = position, ['@region'] = region, ['@state'] = state }
   elseif jurisdiction == "local" then
-      query = 'SELECT character_id as cid, candidate_name as name , id as ballotID FROM ballot WHERE position=@position and city=@city'
+      query = 'SELECT b.character_id as cid, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as name, b.id as ballotID FROM ballot b LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.position=@position and b.city=@city'
       queryParams = { ['@position'] = position, ['@city'] = city }
   end
   MySQL.query(query, queryParams, function(result)
@@ -1047,21 +1062,22 @@ VORP.addNewCallBack("democracy:getResults", function(source, cb, params)
   local jurisdiction = params.jurisdiction
   local state = params.state
   local query, queryParams
+    local candidateNameExpr = 'COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name)'
 
   if jurisdiction == "state" then
-    query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position, b.city, b.region FROM ballot b ' ..
-            'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position AND b.state = @state ' ..
-            'GROUP BY candidate_name, v.office, region, city, b.state ORDER BY votes DESC'
+      query = 'SELECT COUNT(voteID) as votes, ' .. candidateNameExpr .. ' as candidate_name, b.position, b.city, b.region FROM ballot b ' ..
+        'LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE POSITION = @position AND b.state = @state ' ..
+        'GROUP BY b.id, v.office, b.region, b.city, b.state ORDER BY votes DESC'
     queryParams = { ['@position'] = position, ['@state'] = location }
   elseif jurisdiction == "county" then
-    query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position, b.city, b.region FROM ballot b ' ..
-            'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position AND region = @region AND b.state = @state ' ..
-            'GROUP BY candidate_name, v.office, region, city, b.state ORDER BY votes DESC'
+      query = 'SELECT COUNT(voteID) as votes, ' .. candidateNameExpr .. ' as candidate_name, b.position, b.city, b.region FROM ballot b ' ..
+        'LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE POSITION = @position AND b.region = @region AND b.state = @state ' ..
+        'GROUP BY b.id, v.office, b.region, b.city, b.state ORDER BY votes DESC'
     queryParams = { ['@position'] = position, ['@region'] = location, ['@state'] = state }
   elseif jurisdiction == "local" then
-    query = 'SELECT COUNT(voteID) as votes, candidate_name, b.position, b.city, b.region FROM ballot b ' ..
-            'LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE POSITION = @position AND city = @city ' ..
-            'GROUP BY candidate_name, v.office, region, city ORDER BY votes DESC'
+      query = 'SELECT COUNT(voteID) as votes, ' .. candidateNameExpr .. ' as candidate_name, b.position, b.city, b.region FROM ballot b ' ..
+        'LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE POSITION = @position AND b.city = @city ' ..
+        'GROUP BY b.id, v.office, b.region, b.city ORDER BY votes DESC'
     queryParams = { ['@position'] = position, ['@city'] = location }
   end
 
@@ -1166,21 +1182,26 @@ end
 
 function ProcessStateElection(state)
     -- Check the last election cycle for this state
-  MySQL.single('SELECT id, state, UNIX_TIMESTAMP(start_time) as start_unix FROM election_cycles WHERE state = ? ORDER BY start_time DESC LIMIT 1', {state}, function(lastCycle)
-        if not lastCycle then
-            -- No election has ever run for this state, so let's start one.
-            StartNewElectionCycle(state)
-        else
-            -- An election cycle exists. Check if it's time to end it.
+  MySQL.single('SELECT id, state, UNIX_TIMESTAMP(start_time) as start_unix, end_time FROM election_cycles WHERE state = ? ORDER BY start_time DESC LIMIT 1', {state}, function(lastCycle)
+      local currentDate = os.date('*t')
+      local startWeekday = tonumber(Config.ElectionCycle.StartWeekday or 6) or 6
+      local shouldStartNow = currentDate.wday == startWeekday and currentDate.hour == Config.ElectionCycle.HourToRun
+
+      if not lastCycle or lastCycle.end_time ~= nil then
+        if shouldStartNow then
+          StartNewElectionCycle(state)
+        end
+        return
+      end
+
+      -- An active election cycle exists. Check if it's time to end it.
       local cycleStartUnix = tonumber(lastCycle.start_unix) or 0
       local daysPassed = (os.time() - cycleStartUnix) / (24 * 60 * 60)
 
-            if daysPassed >= Config.ElectionCycle.DurationDays then
-                -- End the current election and start a new one
-                EndElectionCycle(state, lastCycle.id)
-            end
-        end
-    end)
+      if daysPassed >= Config.ElectionCycle.DurationDays then
+        EndElectionCycle(state, lastCycle.id)
+      end
+  end)
 end
 
 function StartNewElectionCycle(state)
@@ -1371,7 +1392,7 @@ local function formatRaceScope(position, state, city, region)
 end
 
 local function collectStateRaceResults(state, cb)
-  MySQL.query('SELECT b.position, b.state, b.city, b.region, b.candidate_name, COUNT(v.voteID) as votes FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.state = @state GROUP BY b.id ORDER BY b.position ASC, b.region ASC, b.city ASC, votes DESC, b.candidate_name ASC', { ['@state'] = state }, function(rows)
+  MySQL.query('SELECT b.position, b.state, b.city, b.region, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as candidate_name, COUNT(v.voteID) as votes FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.state = @state GROUP BY b.id ORDER BY b.position ASC, b.region ASC, b.city ASC, votes DESC, candidate_name ASC', { ['@state'] = state }, function(rows)
     cb(rows or {})
   end)
 end
@@ -1451,10 +1472,15 @@ local function buildResultsArchiveText(state, raceRows)
 end
 
 local function StoreWinner(winner, state)
-    local termInWeeks = winner.term
-    -- term in weeks from config
-    local termInSeconds = tonumber(termInWeeks) * 7 * 24 * 60 * 60
-    local termEndDate = os.time() + termInSeconds
+  local termInMonths = tonumber(winner.term) or 0
+  local now = os.time()
+    local endDateRaw = os.date('*t', now)
+    local termEndDate = now + (termInMonths * 30 * 24 * 60 * 60)
+
+    if type(endDateRaw) == 'table' then
+      endDateRaw.month = endDateRaw.month + termInMonths
+      termEndDate = os.time(endDateRaw)
+    end
 
     MySQL.Async.execute('INSERT INTO election_winners (character_id, candidate_name, position, state, term_end_date) VALUES (@charId, @name, @pos, @state, FROM_UNIXTIME(@termEnd))',
     {
@@ -1484,7 +1510,7 @@ end
 
       if jurisdiction == "state" then
         pending = pending + 1
-        MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position and b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@state'] = state }, function(rows)
+        MySQL.query('SELECT COUNT(v.voteID) as votes, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.position = @position and b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@state'] = state }, function(rows)
           if rows and #rows > 0 then
             local winner = rows[1]
             winner.term = getTermForPosition(winner.position)
@@ -1506,7 +1532,7 @@ end
 
           local regionPending = #regions
           for _, regionRow in ipairs(regions) do
-            MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position AND b.region = @region AND b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@region'] = regionRow.region, ['@state'] = state }, function(rows)
+            MySQL.query('SELECT COUNT(v.voteID) as votes, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.position = @position AND b.region = @region AND b.state = @state GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@region'] = regionRow.region, ['@state'] = state }, function(rows)
               if rows and #rows > 0 then
                 local winner = rows[1]
                 winner.term = getTermForPosition(winner.position)
@@ -1534,7 +1560,7 @@ end
 
           local cityPending = #cities
           for _, cityRow in ipairs(cities) do
-            MySQL.query('SELECT COUNT(v.voteID) as votes, b.candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID WHERE b.position = @position AND b.city = @city GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@city'] = cityRow.city }, function(rows)
+            MySQL.query('SELECT COUNT(v.voteID) as votes, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.firstname, ""), " ", COALESCE(c.lastname, ""))), ""), b.candidate_name) as candidate_name, b.character_id, b.position, b.id as ballot_id FROM ballot b LEFT JOIN ballot_votes v ON b.id = v.ballotID LEFT JOIN characters c ON c.charidentifier = b.character_id WHERE b.position = @position AND b.city = @city GROUP BY b.id ORDER BY votes DESC LIMIT 1', { ['@position'] = positionInfo.name, ['@city'] = cityRow.city }, function(rows)
               if rows and #rows > 0 then
                 local winner = rows[1]
                 winner.term = getTermForPosition(winner.position)
@@ -1578,8 +1604,6 @@ end
       MySQL.Async.execute('DELETE FROM ballot WHERE state = @state', {['@state'] = state})
       MySQL.Async.execute('DELETE FROM ballot_votes WHERE state = @state', {['@state'] = state})
       MySQL.Async.execute('DELETE FROM ballot_registration WHERE state = @state', {['@state'] = state})
-
-      StartNewElectionCycle(state)
     end)
   end
 

@@ -5,26 +5,26 @@ Config = Config or {}
 -- Federal level intentionally omitted.
 Config.Positions = {
   -- USA state offices
-  { name = 'State Governor (USA)', jurisdiction = 'State', term = 8, termlimit = 2, states = { 'USA' } },
-  { name = 'State Marshal (USA)', jurisdiction = 'State', term = 8, termlimit = 2, states = { 'USA' } },
-  { name = 'State Surgeon General (USA)', jurisdiction = 'State', term = 8, termlimit = 2, states = { 'USA' } },
+  { name = 'State Governor (USA)', jurisdiction = 'State', term = 2, termlimit = 2, states = { 'USA' } },
+  { name = 'State Marshal (USA)', jurisdiction = 'State', term = 2, termlimit = 2, states = { 'USA' } },
+  { name = 'State Surgeon General (USA)', jurisdiction = 'State', term = 2, termlimit = 2, states = { 'USA' } },
 
   -- Mexico state offices
-  { name = 'State Gobernador (Mexico)', jurisdiction = 'State', term = 8, termlimit = 2, states = { 'Mexico' } },
-  { name = 'State Jefe Rural (Mexico)', jurisdiction = 'State', term = 8, termlimit = 2, states = { 'Mexico' } },
-  { name = 'State Medico Jefe (Mexico)', jurisdiction = 'State', term = 8, termlimit = 2, states = { 'Mexico' } },
+  { name = 'State Gobernador (Mexico)', jurisdiction = 'State', term = 2, termlimit = 2, states = { 'Mexico' } },
+  { name = 'State Jefe Rural (Mexico)', jurisdiction = 'State', term = 2, termlimit = 2, states = { 'Mexico' } },
+  { name = 'State Medico Jefe (Mexico)', jurisdiction = 'State', term = 2, termlimit = 2, states = { 'Mexico' } },
 
   -- USA county (region) offices
-  { name = 'County Sheriff (USA)', jurisdiction = 'County', term = 8, termlimit = 2, states = { 'USA' } },
-  { name = 'County Judge (USA)', jurisdiction = 'County', term = 8, termlimit = 2, states = { 'USA' } },
+  { name = 'County Sheriff (USA)', jurisdiction = 'County', term = 2, termlimit = 2, states = { 'USA' } },
+  { name = 'County Judge (USA)', jurisdiction = 'County', term = 2, termlimit = 2, states = { 'USA' } },
 
   -- Mexico county (region) offices
-  { name = 'County Jefe de Condado (Mexico)', jurisdiction = 'County', term = 8, termlimit = 2, states = { 'Mexico' } },
-  { name = 'County Juez de Condado (Mexico)', jurisdiction = 'County', term = 8, termlimit = 2, states = { 'Mexico' } },
+  { name = 'County Jefe de Condado (Mexico)', jurisdiction = 'County', term = 2, termlimit = 2, states = { 'Mexico' } },
+  { name = 'County Juez de Condado (Mexico)', jurisdiction = 'County', term = 2, termlimit = 2, states = { 'Mexico' } },
 
   -- Local offices
-  { name = 'City Mayor (USA)', jurisdiction = 'Local', term = 8, termlimit = 2, states = { 'USA' } },
-  { name = 'City Alcalde (Mexico)', jurisdiction = 'Local', term = 8, termlimit = 2, states = { 'Mexico' } }
+  { name = 'City Mayor (USA)', jurisdiction = 'Local', term = 2, termlimit = 2, states = { 'USA' } },
+  { name = 'City Alcalde (Mexico)', jurisdiction = 'Local', term = 2, termlimit = 2, states = { 'Mexico' } }
 }
 
 Config.WinnerJobAssignment = Config.WinnerJobAssignment or {}

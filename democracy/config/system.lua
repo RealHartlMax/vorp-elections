@@ -33,8 +33,9 @@ Config.TermLimitScope = {
 
 Config.ElectionCycle = {
   Enabled = true, -- Enable or disable automatic election cycles
-  DurationDays = 7, -- How many days an election cycle lasts
-  HourToRun = 3 -- 24 hour format, 3 = 3am
+  DurationDays = 3, -- How many days a voting window stays open
+  StartWeekday = 6, -- Lua weekday index: 1=Sunday .. 6=Friday .. 7=Saturday
+  HourToRun = 8 -- 24 hour format, 8 = 8am
 }
 
 Config.WinnerJobAssignment = {
