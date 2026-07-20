@@ -135,6 +135,13 @@ Lang["de-DE"] = {
     election_finalize_started    = "Wahlabschluss gestartet. Archivpost und Bereinigung laufen.",
     elections_not_active         = "Aktuell sind keine Wahlen aktiv.",
     winner_job_assigned          = "Du hast das Amt %s erhalten (Job: %s).",
+    residence_required           = "Du brauchst einen aktiven Wohnsitz, um dieses Wahlbüro zu nutzen.",
+    residence_not_mapped         = "Dein Wohnsitz konnte keinem gültigen Wahlkreis zugeordnet werden.",
+    residence_state_mismatch     = "Dein gemeldeter Wohnsitz liegt nicht in diesem Staat.",
+    candidate_state_mismatch     = "Du kannst nur für Ämter in deinem gemeldeten Staat kandidieren.",
+    candidate_district_mismatch  = "Du kannst nur für Ämter in deinem gemeldeten Wahlkreis kandidieren.",
+    residence_hint               = "Dein Wohnsitz: %s",
+    residence_hint_missing       = "Kein aktiver Wohnsitz registriert.",
 
     -- Admin / Election Officials
     no_election_officials        = "Nur Wahlbeamte dürfen diesen Befehl benutzen.",

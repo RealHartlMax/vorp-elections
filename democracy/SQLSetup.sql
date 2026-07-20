@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS `ballot` (
   `city` varchar(255) NOT NULL,
   `state` varchar(50) DEFAULT 'USA',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_ballot_character_id` (`character_id`),
+  KEY `idx_ballot_state_position` (`state`, `position`),
+  KEY `idx_ballot_state_region` (`state`, `region`),
+  KEY `idx_ballot_state_city` (`state`, `city`)
 ) ENGINE=InnoDB AUTO_INCREMENT=125 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Dumping structure for table vorpv2.ballot_registration
@@ -34,7 +38,8 @@ CREATE TABLE IF NOT EXISTS `ballot_registration` (
   `registrationCity` varchar(50) NOT NULL,
   `registrationRegion` varchar(50) NOT NULL,
   `state` varchar(50) DEFAULT 'USA',
-  PRIMARY KEY (`registrationID`) USING BTREE
+  PRIMARY KEY (`registrationID`) USING BTREE,
+  KEY `idx_ballot_registration_voter_location` (`voterID`, `state`, `registrationRegion`, `registrationCity`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Dumping structure for table vorpv2.ballot_votes
@@ -48,7 +53,8 @@ CREATE TABLE IF NOT EXISTS `ballot_votes` (
   `location` varchar(50) DEFAULT NULL,
   `state` varchar(50) DEFAULT 'USA',
   PRIMARY KEY (`voteID`),
-  UNIQUE KEY `uq_ballot_votes_voter_race` (`voterID`,`office`,`jurisdiction`,`location`,`state`)
+  UNIQUE KEY `uq_ballot_votes_voter_race` (`voterID`,`office`,`jurisdiction`,`location`,`state`),
+  KEY `idx_ballot_votes_ballotID` (`ballotID`)
 ) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='contains the votes for candidates (in the ballot table)';
 
 CREATE TABLE IF NOT EXISTS `election_cycles` (

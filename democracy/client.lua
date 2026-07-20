@@ -310,6 +310,22 @@ local function GetPositionsForState(state)
     return positions
 end
 
+local function GetLocationTownId(city, region, state)
+    local cityNorm = normalizeScopePart(city)
+    local regionNorm = normalizeScopePart(region)
+    local stateNorm = normalizeScopePart(state)
+
+    for _, loc in ipairs(Config.VotingLocations or {}) do
+        if normalizeScopePart(loc.city) == cityNorm
+            and normalizeScopePart(loc.region) == regionNorm
+            and normalizeScopePart(loc.state) == stateNorm then
+            return tostring(loc.townId or '')
+        end
+    end
+
+    return ''
+end
+
 local function GetAllPositions(includeInactive)
     local positions = {}
     for _, v in pairs(Config.Positions) do
@@ -525,14 +541,15 @@ local function SetNuiOpenState(isOpen)
     end
 end
 
-local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFirst, customPositions, selectedPositions, canPublishResults, adminScopeOptions, selectedAdminScope)
+local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFirst, customPositions, selectedPositions, canPublishResults, adminScopeOptions, selectedAdminScope, residenceInfo)
     if mode == "results" or mode == "admin" then
         currentBoothContext = nil
     else
         currentBoothContext = {
             city = city,
             region = region,
-            state = state
+            state = state,
+            townId = GetLocationTownId(city, region, state)
         }
     end
 
@@ -594,6 +611,7 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
         subtitleCity = subtitleCity,
         subtitleRegion = subtitleRegion,
         subtitleState = subtitleState,
+        townId = currentBoothContext and currentBoothContext.townId or '',
         onBallot = currentOnBallot,
         autoSelectFirst = autoSelectFirst == true,
         canPublishResults = canPublishResults == true,
@@ -601,6 +619,7 @@ local function OpenElectionNui(mode, city, region, state, onBallot, autoSelectFi
         selectedPositions = selectedPositions or {},
         adminScopeOptions = adminScopeOptions or {},
         selectedAdminScope = selectedAdminScope or 'all',
+        residenceInfo = residenceInfo or '',
         positions = positions,
         labels = labels
     })
@@ -620,7 +639,7 @@ RegisterNUICallback('runForOffice', function(data, cb)
         return
     end
 
-    TriggerServerEvent('addballotname', currentBoothContext.city, currentBoothContext.region, data.position, currentBoothContext.state)
+    TriggerServerEvent('addballotname', currentBoothContext.city, currentBoothContext.region, data.position, currentBoothContext.state, currentBoothContext.townId)
     TriggerEvent("vorp:TipBottom", (_L('you_are_on_ballot', data.position)), 4000)
     SetNuiOpenState(false)
     currentBoothContext = nil
@@ -633,7 +652,7 @@ RegisterNUICallback('registerToVote', function(_, cb)
         return
     end
 
-    TriggerServerEvent('registerVoter', currentBoothContext.city, currentBoothContext.region, currentBoothContext.state)
+    TriggerServerEvent('registerVoter', currentBoothContext.city, currentBoothContext.region, currentBoothContext.state, currentBoothContext.townId)
     TriggerEvent("vorp:TipBottom", (_L('player_registered', currentBoothContext.city)), 4000)
     cb({ ok = true, message = _L('nui_register_success') })
 end)
@@ -660,7 +679,8 @@ RegisterNUICallback('getCandidates', function(data, cb)
         region = currentBoothContext.region,
         jurisdiction = jurisdiction,
         position = data.position,
-        state = currentBoothContext.state
+        state = currentBoothContext.state,
+        townId = currentBoothContext.townId
     })
 end)
 
@@ -1019,7 +1039,10 @@ AddEventHandler('democracy:votingbooth', function(city, region, state)
                     end
                 end)
             else
-                OpenElectionNui("register", vcity, vregion, vstate, onBallot)
+                TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResidenceStatus", function(residence)
+                    local residenceInfo = residence and residence.residenceText or ''
+                    OpenElectionNui("register", vcity, vregion, vstate, onBallot, false, nil, nil, nil, nil, nil, residenceInfo)
+                end, { city = vcity, region = vregion, state = vstate, townId = GetLocationTownId(vcity, vregion, vstate) })
             end
         end
     end, { city = vcity, region = vregion })
@@ -1049,7 +1072,10 @@ AddEventHandler('democracy:runbooth', function(city, region, state)
                     OpenRunMenu(registered, vcity, vregion, onBallot, vstate)
                 end
             else
-                OpenElectionNui("run", vcity, vregion, vstate, onBallot)
+                TriggerEvent("vorp:ExecuteServerCallBack", "democracy:getResidenceStatus", function(residence)
+                    local residenceInfo = residence and residence.residenceText or ''
+                    OpenElectionNui("run", vcity, vregion, vstate, onBallot, false, nil, nil, nil, nil, nil, residenceInfo)
+                end, { city = vcity, region = vregion, state = vstate, townId = GetLocationTownId(vcity, vregion, vstate) })
             end
         end, { city = vcity, region = vregion })
     end)
@@ -1076,7 +1102,7 @@ end)
 
 RegisterNetEvent('democracy:openElectionSetup')
 AddEventHandler('democracy:openElectionSetup', function(positions, selectedPositions, scopeFilter)
-    OpenElectionNui("admin", nil, nil, nil, false, false, positions or {}, selectedPositions or {}, false, BuildAdminScopeOptions(), ScopeFilterToSelection(scopeFilter))
+    OpenElectionNui("admin", nil, nil, nil, false, false, positions or {}, selectedPositions or {}, false, BuildAdminScopeOptions(), ScopeFilterToSelection(scopeFilter), '')
 end)
 
 function OpenStartMenu(registered, city, region, onBallot, state)
@@ -1306,7 +1332,7 @@ function OpenCandidatesMenu(registered, city, region, position, onBallot, state)
                 menu.close()
             end
         )
-    end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position, state = vstate })
+    end, { city = vcity, region = vregion, jurisdiction = jurisdiction, position = position, state = vstate, townId = GetLocationTownId(vcity, vregion, vstate) })
 end
 
 function CastVote(registered,city, region, position,jurisdiction,candidateid,ballotid,onballot, state, fromNui)

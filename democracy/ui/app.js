@@ -52,6 +52,7 @@ let state = {
   activeScopeInfo: '',
   runPositions: [],
   positions: [],
+  residenceInfo: '',
   selectedPosition: null,
   selectedCandidate: null,
   candidates: [],
@@ -280,6 +281,7 @@ const setMode = async (mode) => {
     : (isResults ? (state.labels.results || 'Results') : (state.labels.select_candidate || 'Select Candidate'));
 
   if (isRegister) {
+    showStatus(state.residenceInfo || state.labels.residence_hint_missing || 'No active residence is registered');
     positionList.innerHTML = '';
     const line = document.createElement('div');
     line.textContent = state.labels.register_prompt || 'Register to vote';
@@ -560,6 +562,7 @@ window.addEventListener('message', (event) => {
   state.gameState = data.state;
   state.labels = data.labels || {};
   state.activeScopeInfo = data.activeScopeInfo || '';
+  state.residenceInfo = data.residenceInfo || '';
   state.positions = data.positions || [];
   state.runPositions = Array.isArray(data.positions) ? [...data.positions] : [];
   state.adminScopeOptions = data.adminScopeOptions || [];

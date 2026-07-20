@@ -136,6 +136,13 @@ Lang["en-EN"] = {
     election_finalize_started    = "Election finalization started. Results archive and cleanup are processing.",
     elections_not_active         = "Elections are currently inactive.",
     winner_job_assigned          = "You received office %s (job: %s).",
+    residence_required           = "You must have an active residence before using this booth.",
+    residence_not_mapped         = "Your residence could not be matched to a valid district.",
+    residence_state_mismatch     = "Your registered residence is not in this state.",
+    candidate_state_mismatch     = "You can only run for offices in your registered state.",
+    candidate_district_mismatch  = "You can only run for offices in your registered district.",
+    residence_hint               = "Your residence: %s",
+    residence_hint_missing       = "No active residence is registered.",
 
     -- Admin / Election Officials
     no_election_officials        = "Only Election Officials are authorized to use this command.",

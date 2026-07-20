@@ -13,8 +13,11 @@ Based on "Democracy" by Jeffy Detexas.
 - Optional Discord webhook notifications for candidacy and voting activity, plus results archive posting on finalization.
 - Multi-state data model with separate election data per state.
 - Position lists are filtered by booth state in run/vote menus.
+- Residence-aware eligibility for voter registration and candidacy, backed by `RPE_Government` residence data.
+- Configurable election-official/admin override path with audit logging via the existing webhook output.
 - Term-limit checks support configurable scope (per state and optional time window).
 - Automatic election cycle processing (state-based) with configurable start weekday/hour and duration.
+- Locale files are split into `lang/en.lua` and `lang/de.lua` with a shared `lang.lua` container.
 
 ## Dependencies
 
@@ -28,8 +31,10 @@ Based on "Democracy" by Jeffy Detexas.
 1. Put the `democracy` folder into your server resources.
 2. Add `ensure democracy` to your server config.
 3. Import `democracy/SQLSetup.sql` into your database.
-4. Configure positions, locations, and state setup in `democracy/config.lua`.
-5. (Optional) Configure Discord webhook values in `Config.Webhooks`.
+4. If you already have an existing database, also run `democracy/residence_indices_migration.sql`.
+5. Configure positions in `democracy/config/offices.lua`, voting booths in `democracy/config/locations.lua`, and core settings in `democracy/config/system.lua`.
+6. Configure language strings in `democracy/lang/en.lua` or `democracy/lang/de.lua` as needed.
+7. (Optional) Configure Discord webhook values in `Config.Webhooks`.
 
 ## Commands
 
@@ -44,6 +49,7 @@ The script is already partially integrated for two states:
 - Config includes Mexico voting booths (Escalera, Chuparosa).
 - State-aware cleanup exists (`cleanupScript` event and `post_election_cleanup_script.sql`).
 - Automatic cycle processor iterates states from configured voting locations.
+- Voting eligibility and candidacy can be restricted by the player's registered residence.
 
 Current limitations of the two-state setup:
 
@@ -58,7 +64,7 @@ To better match that era, adjust:
 - Office titles (for example region-specific and period-appropriate roles).
 - Jurisdiction naming and government structure for your lore timeline.
 - Language/UI text in `lang/en.lua` and `lang/de.lua` (base container in `lang.lua`).
-- Voting locations and regions in `config.lua`.
+- Voting locations in `config/locations.lua`, office definitions in `config/offices.lua`, and shared timing/settings in `config/system.lua`.
 
 ## Known Issues (Important)
 

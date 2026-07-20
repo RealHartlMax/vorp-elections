@@ -43,6 +43,8 @@ local function getUserJob(user)
   return user.getJob
 end
 
+local hasElectionControlPermission
+
 local function buildCharacterName(firstname, lastname, fallback)
   local first = tostring(firstname or ''):gsub('^%s+', ''):gsub('%s+$', '')
   local last = tostring(lastname or ''):gsub('^%s+', ''):gsub('%s+$', '')
@@ -66,6 +68,295 @@ local function resolveCharacterNameByCharId(charId, fallback, cb)
   end)
 end
 
+local LocationAliases = {
+  ['st denis'] = 'saint denis',
+  ['st. denis'] = 'saint denis',
+  ['st dennis'] = 'saint denis',
+  ['saint denis'] = 'saint denis',
+  ['nuevo paraiso'] = 'nuevo paraiso',
+  ['nuevo paraíso'] = 'nuevo paraiso'
+}
+
+local function normalizeLocationValue(value)
+  local text = tostring(value or '')
+  text = text:gsub('^%s+', ''):gsub('%s+$', '')
+  text = text:gsub('%p', ' ')
+  text = text:gsub('%s+', ' ')
+  text = string.lower(text)
+  return LocationAliases[text] or text
+end
+
+local function resolveTownIdFromBooth(city, region, state, providedTownId)
+  local supplied = tostring(providedTownId or '')
+  if supplied ~= '' then
+    return supplied
+  end
+
+  local cityNorm = normalizeLocationValue(city)
+  local regionNorm = normalizeLocationValue(region)
+  local stateNorm = normalizeLocationValue(state)
+
+  for _, loc in ipairs(Config.VotingLocations or {}) do
+    if normalizeLocationValue(loc.city) == cityNorm
+      and normalizeLocationValue(loc.region) == regionNorm
+      and normalizeLocationValue(loc.state) == stateNorm then
+      return tostring(loc.townId or '')
+    end
+  end
+
+  return ''
+end
+
+local function normalizeBoothKey(value)
+  return normalizeLocationValue(value)
+end
+
+local function findVotingLocationByTownId(townId)
+  local target = normalizeBoothKey(townId)
+  if target == '' then
+    return nil
+  end
+
+  for _, loc in ipairs(Config.VotingLocations or {}) do
+    if normalizeBoothKey(loc.townId) == target then
+      return loc
+    end
+  end
+
+  return nil
+end
+
+local ResidenceCache = {
+  byCharId = {},
+  sourceToCharId = {},
+  ttlSeconds = 300
+}
+
+local function clearResidenceCache(charId)
+  if not charId then
+    return
+  end
+
+  ResidenceCache.byCharId[tostring(charId)] = nil
+end
+
+local function registerResidenceSource(source, charId)
+  if not source or not charId then
+    return
+  end
+
+  ResidenceCache.sourceToCharId[tostring(source)] = tostring(charId)
+end
+
+local function getCachedResidence(charId)
+  local key = tostring(charId or '')
+  local entry = ResidenceCache.byCharId[key]
+  if not entry then
+    return nil
+  end
+
+  if entry.expiresAt and entry.expiresAt < os.time() then
+    ResidenceCache.byCharId[key] = nil
+    return nil
+  end
+
+  return entry.value
+end
+
+local function setCachedResidence(charId, value)
+  local key = tostring(charId or '')
+  if key == '' then
+    return
+  end
+
+  ResidenceCache.byCharId[key] = {
+    value = value,
+    expiresAt = os.time() + ResidenceCache.ttlSeconds
+  }
+end
+
+local function getGovernmentResidence(charId)
+  local cached = getCachedResidence(charId)
+  if cached then
+    return cached
+  end
+
+  local resources = { 'RPE_Government', 'rpe_government' }
+
+  for _, resourceName in ipairs(resources) do
+    if GetResourceState(resourceName) == 'started' then
+      local resourceExports = exports[resourceName]
+      local exportFn = resourceExports and resourceExports.GetResidenceByCharId
+      if type(exportFn) == 'function' then
+        local ok, result = pcall(exportFn, charId)
+        if ok then
+          if type(result) == 'table' then
+            setCachedResidence(charId, result)
+          end
+
+          return result
+        end
+      end
+    end
+  end
+
+  return nil
+end
+
+local function getResidenceDistrict(charId)
+  local residence = getGovernmentResidence(charId)
+  if type(residence) ~= 'table' then
+    return nil
+  end
+
+  local residenceTownId = tostring(residence.town_id or residence.townId or '')
+  if residenceTownId == '' then
+    return nil
+  end
+
+  local location = findVotingLocationByTownId(residenceTownId)
+  return {
+    townId = residenceTownId,
+    state = location and location.state or nil,
+    region = location and location.region or nil,
+    location = location,
+    raw = residence
+  }
+end
+
+local function isSameValue(left, right)
+  return normalizeBoothKey(left) ~= '' and normalizeBoothKey(left) == normalizeBoothKey(right)
+end
+
+local function canRegisterAtBooth(charId, boothState)
+  local district = getResidenceDistrict(charId)
+  if not district then
+    return false, 'residence_required'
+  end
+
+  if not district.state then
+    return false, 'residence_not_mapped'
+  end
+
+  if not isSameValue(district.state, boothState) then
+    return false, 'residence_state_mismatch'
+  end
+
+  return true, district
+end
+
+local function canRunForPosition(charId, boothTownId, boothState, boothRegion, jurisdiction)
+  local district = getResidenceDistrict(charId)
+  if not district then
+    return false, 'residence_required'
+  end
+
+  if not district.state then
+    return false, 'residence_not_mapped'
+  end
+
+  local scope = string.lower(tostring(jurisdiction or 'local'))
+  if not isSameValue(district.state, boothState) then
+    return false, 'candidate_state_mismatch'
+  end
+
+  if scope == 'state' then
+    return true, district
+  end
+
+  if scope == 'county' then
+    if not isSameValue(district.region, boothRegion) then
+      return false, 'candidate_district_mismatch'
+    end
+    return true, district
+  end
+
+  if not isSameValue(district.townId, boothTownId) then
+    return false, 'candidate_district_mismatch'
+  end
+
+  return true, district
+end
+
+local function canUseResidencyOverride(source)
+  local integration = Config.ResidencyIntegration or {}
+  local elections = integration.elections or {}
+
+  if elections.allowOverride == false then
+    return false
+  end
+
+  return hasElectionControlPermission(source)
+end
+
+local function logResidencyOverride(source, action, district, boothCity, boothRegion, boothState, reason)
+  local user = VorpCore.getUser(source)
+  local character = user and user.getUsedCharacter or nil
+  local charName = character and buildCharacterName(character.firstname, character.lastname, GetPlayerName(source)) or GetPlayerName(source)
+  local townId = district and district.townId or 'unknown'
+  local districtState = district and district.state or 'unknown'
+  local districtRegion = district and district.region or 'unknown'
+  local message = ('[democracy] residency override %s by %s (%s) -> booth %s/%s/%s, residence %s/%s/%s, reason=%s'):format(
+    tostring(action or 'unknown'),
+    tostring(charName),
+    tostring(source),
+    tostring(boothCity or 'unknown'),
+    tostring(boothRegion or 'unknown'),
+    tostring(boothState or 'unknown'),
+    tostring(townId),
+    tostring(districtRegion),
+    tostring(districtState),
+    tostring(reason or 'override')
+  )
+
+  print(message)
+  SendToDiscordWebhook(message, message, 'activity')
+end
+
+VORP.addNewCallBack('democracy:getResidenceStatus', function(source, cb, params)
+  local user = VorpCore.getUser(source)
+  local charId = user and user.getUsedCharacter and user.getUsedCharacter.charIdentifier or nil
+  registerResidenceSource(source, charId)
+  local boothState = params and params.state or ''
+  local boothTownId = params and params.townId or ''
+  local boothRegion = params and params.region or ''
+  local district = charId and getResidenceDistrict(charId) or nil
+
+  local payload = {
+    ok = true,
+    eligible = false,
+    residenceText = '',
+    district = district
+  }
+
+  if district then
+    local location = district.location
+    local address = district.raw and (district.raw.address_line or district.raw.address or '') or ''
+    local labelParts = {}
+    if address ~= '' then
+      table.insert(labelParts, address)
+    end
+    if location and location.city then
+      table.insert(labelParts, location.city)
+    elseif district.townId ~= '' then
+      table.insert(labelParts, district.townId)
+    end
+    if district.state then
+      table.insert(labelParts, district.state)
+    end
+
+    payload.residenceText = _L('residence_hint', table.concat(labelParts, ' - '))
+    payload.eligible = district.state ~= '' and isSameValue(district.state, boothState)
+    if boothTownId ~= '' and boothRegion ~= '' and location then
+      payload.eligible = payload.eligible and (isSameValue(location.townId, boothTownId) or isSameValue(location.region, boothRegion))
+    end
+  else
+    payload.residenceText = _L('residence_hint_missing')
+  end
+
+  cb(payload)
+end)
+
 local ElectionRuntimeState = {
   Active = Config.ElectionBoothsActiveOnStart == true,
   ActivePositions = {},
@@ -82,7 +373,7 @@ end
 
 ElectionRuntimeState.ActivePositions = getAllPositionNames()
 
-local function hasElectionControlPermission(source)
+hasElectionControlPermission = function(source)
   if source == 0 then
     return true
   end
@@ -239,6 +530,15 @@ local function getScopeStateFromFilter(scopeFilter)
   return nil
 end
 
+AddEventHandler('playerDropped', function()
+  local source = source
+  local charId = ResidenceCache.sourceToCharId[tostring(source)]
+  if charId then
+    ResidenceCache.sourceToCharId[tostring(source)] = nil
+    clearResidenceCache(charId)
+  end
+end)
+
 local function getSetupPositionsForScope(scopeFilter)
   local scopeState = getScopeStateFromFilter(scopeFilter)
   local positions = {}
@@ -322,6 +622,15 @@ VORP.addNewCallBack('democracy:getVoteablePositions', function(source, cb, param
   local cityNorm = normalizeScopeValue(city)
   local regionNorm = normalizeScopeValue(region)
   local stateNorm = normalizeScopeValue(state)
+  local user = VorpCore.getUser(source)
+  local charId = user and user.getUsedCharacter and user.getUsedCharacter.charIdentifier or nil
+  registerResidenceSource(source, charId)
+  local residenceDistrict = charId and getResidenceDistrict(charId) or nil
+
+  if not residenceDistrict or not residenceDistrict.state or not isSameValue(residenceDistrict.state, state) then
+    cb({ ok = true, positions = {} })
+    return
+  end
 
   MySQL.query('SELECT position, city, region, state FROM ballot WHERE state = @state', {
     ['@state'] = state
@@ -821,11 +1130,33 @@ end
 
 
 RegisterServerEvent('registerVoter')
-AddEventHandler('registerVoter', function(city, region, state)
+AddEventHandler('registerVoter', function(city, region, state, townId)
   local _source = source
   local user = VorpCore.getUser(_source) 
   local Character = VorpCore.getUser(_source).getUsedCharacter
   local charId = user.getUsedCharacter.charIdentifier
+  registerResidenceSource(_source, charId)
+  local resolvedTownId = resolveTownIdFromBooth(city, region, state, townId)
+  local canRegister, registerReason = canRegisterAtBooth(charId, state)
+
+  if not canRegister then
+    local district = getResidenceDistrict(charId)
+    if canUseResidencyOverride(_source) then
+      logResidencyOverride(_source, 'register', district, city, region, state, registerReason)
+    else
+      TriggerClientEvent("vorp:TipBottom", _source, (_L(registerReason or 'residence_required')), 5000)
+      return
+    end
+  end
+
+  if not canRegister and not canUseResidencyOverride(_source) then
+    TriggerClientEvent("vorp:TipBottom", _source, (_L(registerReason or 'residence_required')), 5000)
+    return
+  end
+
+  if Config.DevDebug and resolvedTownId ~= '' then
+    print(('[democracy] registration booth townId resolved: %s (%s/%s/%s)'):format(resolvedTownId, tostring(city), tostring(region), tostring(state)))
+  end
 
 MySQL.Async.execute('INSERT INTO ballot_registration (voterID, registrationCity, registrationRegion, state) VALUES (@character_id,  @city, @region, @state)',
   {
@@ -838,7 +1169,7 @@ MySQL.Async.execute('INSERT INTO ballot_registration (voterID, registrationCity,
 end)
 
 RegisterServerEvent('addballotname')
-AddEventHandler('addballotname', function(city,region,position, state)
+AddEventHandler('addballotname', function(city,region,position, state, townId)
   local _source = source
   if not isPositionActive(position) then
     TriggerClientEvent("vorp:TipBottom", _source, (_L('elections_not_active')), 4000)
@@ -849,6 +1180,32 @@ AddEventHandler('addballotname', function(city,region,position, state)
   local Character = VorpCore.getUser(_source).getUsedCharacter
   local fallbackName = buildCharacterName(Character.firstname, Character.lastname, GetPlayerName(_source))
   local charId = user.getUsedCharacter.charIdentifier
+  registerResidenceSource(_source, charId)
+  local resolvedTownId = resolveTownIdFromBooth(city, region, state, townId)
+  local positionInfo
+
+  for _, pos in ipairs(Config.Positions) do
+    if pos.name == position then
+        positionInfo = pos
+        break
+    end
+  end
+
+  local canRun, runReason = canRunForPosition(charId, resolvedTownId, state, region, positionInfo and positionInfo.jurisdiction or 'local')
+
+  if not canRun then
+    local district = getResidenceDistrict(charId)
+    if canUseResidencyOverride(_source) then
+      logResidencyOverride(_source, 'candidate', district, city, region, state, runReason)
+    else
+      TriggerClientEvent("vorp:TipBottom", _source, (_L(runReason or 'candidate_district_mismatch')), 5000)
+      return
+    end
+  end
+
+  if Config.DevDebug and resolvedTownId ~= '' then
+    print(('[democracy] candidacy booth townId resolved: %s (%s/%s/%s)'):format(resolvedTownId, tostring(city), tostring(region), tostring(state)))
+  end
 
   local function insertCandidate(playername)
     MySQL.Async.execute('INSERT INTO ballot (character_id, candidate_name, position, city, region, state) VALUES (@character_id, @candidate_name, @position, @city, @region, @state)',
@@ -866,14 +1223,6 @@ AddEventHandler('addballotname', function(city,region,position, state)
     SendToDiscordWebhook(title,description, 'candidate')
   end
   
-  local positionInfo
-  for _, pos in ipairs(Config.Positions) do
-    if pos.name == position then
-        positionInfo = pos
-        break
-    end
-  end
-
   resolveCharacterNameByCharId(charId, fallbackName, function(playername)
     if positionInfo and positionInfo.termlimit > 0 then
       local termLimitQuery, termLimitParams = getTermLimitQueryAndParams(charId, position, state)
@@ -924,6 +1273,7 @@ VORP.addNewCallBack("democracy:getCandidates", function(source, cb, params)
   local city = params.city
   local region = params.region
   local position = params.position
+  local boothTownId = tostring(params.townId or '')
   if not isPositionActive(position) then
       cb({})
       return
@@ -931,6 +1281,13 @@ VORP.addNewCallBack("democracy:getCandidates", function(source, cb, params)
 
   local jurisdiction = params.jurisdiction
   local state = params.state
+  local boothLocation = findVotingLocationByTownId(boothTownId)
+  local boothRegion = boothLocation and boothLocation.region or nil
+  local canRun, _ = canRunForPosition(charId, boothTownId, state, boothRegion, jurisdiction)
+  if not canRun then
+    cb({})
+    return
+  end
  
   local query, queryParams
 
